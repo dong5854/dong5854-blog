@@ -6,7 +6,7 @@ const siteMetadata = {
   description: '기술 블로그',
   language: 'ko-KR',
   theme: 'system', // system, dark or light
-  siteUrl: 'https://tailwind-nextjs-starter-blog.vercel.app',
+  siteUrl: 'https://tech-blog-lac-one.vercel.app/',
   siteRepo: 'https://github.com/dong5854/tech-blog',
   siteLogo: '/static/images/logo.png',
   socialBanner: '/static/images/twitter-card.png',
