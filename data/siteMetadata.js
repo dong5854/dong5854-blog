@@ -2,7 +2,7 @@
 const siteMetadata = {
   title: 'tech-blog',
   author: 'Dong Young Lee',
-  headerTitle: 'blog',
+  headerTitle: 'dong5854 blog',
   description: '기술 블로그',
   language: 'ko-KR',
   theme: 'system', // system, dark or light
