@@ -1,0 +1,43 @@
+---
+title: '정상성(stationarity), 평활(smoothing) 그리고 계절성(seasonality)'
+date: '2024-01-01'
+tags: ['time-series']
+draft: false
+summary: 정상성(stationarity), 평활(smoothing) 그리고 계절성(seasonality) 에 대한 정리
+---
+
+> 참고자료
+> https://assaeunji.github.io/statistics/2021-08-08-stationarity/ > https://www.kaggle.com/code/nholloway/stationarity-smoothing-and-seasonality
+
+# 정상성(stationarity)
+
+## Unit Root
+
+## Augmented Dickey-Fuller
+
+## KPSS
+
+# 정상 과정
+
+## Box-Cox Transformation
+
+# 평활(smoothing)
+
+데이터 평활은 시계열 데이터에서 측정의 오류 혹은 높게 튀는 측정치 즉, 노이즈를 줄이기 위해 사용됩니다. 선형지수평활법(LES, Linear Exponential Smooting) 와 단순 지수 평활(SES, Simple Exponential Smoothing) 은 약한 추세성(trend)를 갖는 비계절성(nonseasonal) 데이터에서 사용될 수 있습니다. 조금 더 복잡한 시계열의 경우 간단한 평활화 기법을 기반으로 발전시킨 홀트-윈터스(Holt-Winters)의 계절성 기법이 있습니다.
+
+데이터 평활은 시계열 데이터를 다룰 때 기본이 되며 ARMA 계열의 예측 모델을 포함한 다양한 사용처가 있습니다.
+지나치게 평활화된 모델은 높은 편향을 보이게 할 수 있고, 파라미터에 따라 너무 많은 분산이 감소할 수 있으므로 평활화 시 분산과 데이터 분포의 모양에 주의를 기울여야 합니다.
+
+## Simple Moving Average(SMA)
+
+단순 이동 평균(SMA, Simple Moving Average)은 n개의 데이터에 대해 동등하게 가중치를 부여한 평균입니다. 이 기법은 데이터가 없거나 매우 불규칙할 때 좋은 원시적이지만 강력한 방법입니다.
+
+오염 물질 데이터는 시간(hour) 단위로 보았을 때 노이즈가 굉장히 큽니다. SMA는 우리가 원하는 수준으로 데이터를 점진적으로 매끄럽게 만드는 좋은 전처리 도구입니다.
+
+## Simple Exponential Smoothing(SES)
+
+## Double Exponential Smoothing(DES)
+
+## Triple Exponential Smoothing(TES)
+
+# 계절성(seasonality)
