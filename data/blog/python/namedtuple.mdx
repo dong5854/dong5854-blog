@@ -1,0 +1,153 @@
+---
+title: '파이썬 namedtuple'
+date: '2024-02-19'
+tags: ['python']
+draft: false
+summary: Spark Architecture(스파크 아키텍쳐) 소개
+---
+
+# namedtuple 이란?
+
+파이썬의 namedtuple 은 collections 모듈 아래에 있는 자료구조를 사용해 tuple 자료형을 마치 데이터베이스의 레코드처럼 의미가 있는 일련의 속성으로 구성된 클래스를 만들 수 있습니다.
+일반적으로 튜플이 사용될 수 있는 상황에서 전부 사용될 수 있으며, csv 혹은 sqlite3 모듈에서 결과로 반환한 튜플에 필드명을 주는 등의 활용을 할 수 있습니다.
+인덱스로만 요소에 접근 가능한 인덱스와 달리 이름으로도 접근이 가능합니다.
+
+```python
+collections.namedtuple(typename, field_names, *, rename=False, defaults=None, module=None)
+```
+
+위와 같이 namedtuple 을 사용하면 typename 매개변수에 전달된 인자값을 이름으로 갖는 튜플의 서브클래스를 반환합니다.
+field_names 는 namedtuple 에서 각 튜플의 이름이 됩니다.
+
+반환받은 튜플의 서브 클래스는 다음과 같이 사용할 수 있습니다.
+
+```python
+import collections
+
+# 3가지 방법 모두 사용 가능합니다.
+# Penguin = collections.namedtuple("Penguin", 'name age')
+# Penguin = collections.namedtuple("Penguin", 'name, age')
+Penguin = collections.namedtuple("Penguin", ['name', 'age'])
+
+# pororo namedtuple 생성, positinal 혹은 named argument 를 전부 사용할 수 있습니다.
+pororo = Penguin("pororo", age=10)
+
+# __repr__ 메소드가 구현되어 있어 key-value 형식으로 출력됩니다.
+print(pororo)
+
+# 이름으로 요소에 접근이 가능합니다.
+print(pororo.name)
+print(pororo.age)
+
+# 인덱스로도 요소에 접근이 가능합니다.
+print(pororo[0])
+print(pororo[1])
+```
+
+위의 코드를 실행하면 다음과 같이 출력됩니다.
+
+```bash
+Penguin(name='pororo', age=10)
+pororo
+10
+pororo
+10
+```
+
+## rename
+
+필드명은 언더바, 숫자로 시작하거나 키워드를 사용할 수 없습니다.
+따라서 다음과 같은 코드는 오류을 발생시킵니다.
+
+```python
+>>> Test = collections.namedtuple("Test", ["a", "_b", "1c","def"])
+```
+
+이 떄 rename 파라미터를 true 로 준다면 이런 유효하지 않거나 중복되는 필드명들을 자동으로 바꿔줍니다.
+
+```python
+>>> Test = collections.namedtuple("Test", ["a", "_b", "1c","def", "a"], rename=True)
+>>> test1 = Test(1,2,3,4,5)
+>>> print(test1)
+Test(a=1, _1=2, _2=3, _3=4, _4=5)
+```
+
+## default
+
+또한 default 에 iterable 한 값을 넣어주면 필드에 기본값을 줄 수있습니다.
+
+```python
+>>> Test = collections.namedtuple("Test", ["a", "b", "c"], defaults=[1, 2, 3])
+>>> test1 = Test()
+>>> print(test1)
+Test(a=1, b=2, c=3)
+```
+
+## module
+
+module 이 정의되어 있다면, `__module__` 값이 해당 값이 됩니다.
+
+# Named tupled의 메모리
+
+공식 문서를 보면 `Named tuple instances do not have per-instance dictionaries, so they are lightweight and require no more memory than regular tuples.`
+라는 문구가 있는데 이 문구의 의미는 다음과 같습니다.
+
+일반적으로 파이썬 객체들은 내부적으로 커스텀 속성을 추가할 수 있도록 내장된 딕셔너리가 있는데 이 내장 딕셔너리가 오버헤드를 발생시킵니다.
+반면 namedtuple 은 이 내장된 딕셔너리가 없어 커스텀 속성을 추가할 수 없는 대신 일반 튜플과같이 메모리 효율적인 특징을 갖는다고 합니다.
+
+다음 코드를 통해 이를 확인할 수 있습니다.
+
+```python
+from collections import namedtuple
+
+class Foo:
+    pass
+
+f = Foo()
+f.a = 1
+print(f'f.__dict__:  {f.__dict__}')
+print(f'Attribute a: {f.a}')
+```
+
+```bash
+# 출력
+f.dict: {'a': 1}
+Attribute a: 1
+```
+
+```python
+Foo = namedtuple("Foo", 'a,b')
+f = Foo(1,2)
+try:
+  print(f'f.__dict__:  {f.__dict__}')
+except Exception as e:
+  print(e)
+
+Foo = namedtuple("Foo", 'a,b')
+f = Foo(1,2)
+try:
+  f.c = 3
+except Exception as e:
+  print(e)
+```
+
+```bash
+Foo object has no attribute dict
+'Foo' object has no attribute 'c'
+```
+
+> 참고자료 : https://stackoverflow.com/questions/71905197/what-does-per-instance-dictionaries-mean-in-namedtuple-of-the-collections-modu
+
+# 타입 힌트
+
+Named tuple 은 분명히 유용해 보이지만, 타입 힌트를 줄 수 없다는 아쉬움이 있습니다.
+이 문제를 해결하기 위해 파이썬 3.6 버전에 `typing.NamedTuple` 가 추가되었습니다.
+
+# 마치면서
+
+지금까지 python Named tuple 에 대해 간단하게 알아보았습니다.
+튜플을 사용하되 인덱스의 의미가 명확히 표현되어야 할 떄 사용하면 좋을 것 같습니다.
+
+본 게시물은 파이썬의 공식 문서를 토대로 작성되었습니다. 더 자세한 내용은 공식 문서에서 확인 할 수 있습니다.
+
+> 파이썬 공식 문서 : https://docs.python.org/3/library/collections.html#namedtuple-factory-function-for-tuples-with-named-fields
