@@ -1,0 +1,92 @@
+---
+title: 'Kotlin tour'
+date: '2024-02-25'
+tags: ['kotlin']
+draft: false
+summary: kotlin tour document 살펴보기
+---
+
+# Kotlin tour 란?
+
+Kotlin tour 는 코틀린 공식 도큐먼트에서 코틀린의 기초 학습을 도와주기 위해 있는 가이드 입니다.
+모든 학습을 브라우저 안에서 할 수 있습니다.
+
+> Kotlin tour 링크 : https://kotlinlang.org/docs/kotlin-tour-welcome.html
+
+Kotlin 을 해당 도큐먼트로 공부한 내용을 이번 포스트에 정리해보겠습니다.
+
+## Hello world
+
+```kotlin
+fun main() {
+    println("Hello, world!")
+    print("Hello, world!")
+}
+```
+
+```bash
+# 출력
+Hello, world!
+Hello, world!
+```
+
+- 코틀린에서 함수를 선언할 떄 `fun` 을 사용합니다.
+- 코틀린은 `main()` 함수에서 프로그램을 시작합니다.
+- 함수는 중괄호 `{}` 로 감쌉니다.
+- 기본 출력을 위해서 `println` 과 `print` 를 사용할 수 있습니다.
+
+## 변수(Variables)
+
+코틀린에서 변수는 크게 `val` 과 `var` 이 있습니다.
+
+- `val` 은 read-only 인 불변(imutable) 변수를 선언할 때 사용합니다.
+- `var` 은 가변(mutable) 변수를 선언할 때 사용합니다.
+
+변수에 값 할당은 `=` 을 통해 이루어집니다.
+
+```kotlin
+val popcorn = 5    // There are 5 boxes of popcorn
+val hotdog = 7     // There are 7 hotdogs
+var customers = 10 // There are 10 customers in the queue
+
+// Some customers leave the queue
+customers = 8
+println(customers)
+// 8
+```
+
+```bash
+# 출력
+8
+```
+
+변수는 프로그램의 시작, main() 함수 바깥에 선언될 수 있습니다. 이렇게 선언된 변수들은 최상위(top level) 선언된 변수라고 합니다.
+
+customers 는 var 로 선언된 가변(mutable) 변수이므로 재할당이 가능합니다.
+
+> 기본적으로 변수는 val 로 선언을 하고 필요할 때문 var 로 선언하는 것을 추천합니다.
+
+## 문자열 템플릿(String templates)
+
+문자열 템플릿(String templates) 를 사용해 문자열 내에 변수 혹은 표현식을 사용해 값을 문자열에 포함시킬 수 있습니다. 문자열 템플릿은 항상 달러 표시 `$` 를 사용해 시작합니다.
+
+템플릿 표현식 안에 코드를 실행시키려면 코드를 중괄호 `{}` 안에 넣은 후 앞에 달러 표시 `$` 를 붙여주어야 합니다.
+
+```kotlin
+val customers = 10
+println("There are $customers customers")
+// There are 10 customers
+
+println("There are ${customers + 1} customers")
+// There are 11 customers
+```
+
+```bash
+# 출력
+There are 10 customers
+There are 11 customers
+```
+
+더 자세한 정보는 [String templates](https://kotlinlang.org/docs/strings.html) 를 통해 확인할 수 있습니다.
+
+앞선 예제들에서 변수에 타입이 선언이 되지 않았습니다. 코틀린은 타입을 명시하지 않아도, 변수가 선언될 때 할당된 값을 기반으로 타입을 추론해줍니다.
