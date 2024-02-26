@@ -45,11 +45,11 @@ Hello, world!
 변수에 값 할당은 `=` 을 통해 이루어집니다.
 
 ```kotlin
-val popcorn = 5    // There are 5 boxes of popcorn
-val hotdog = 7     // There are 7 hotdogs
-var customers = 10 // There are 10 customers in the queue
+val popcorn = 5    // 팝콘(popcorn)이 5 박스
+val hotdog = 7     // 핫도그(hotdog)가 7개
+var customers = 10 // 대기줄에 손님(customers)이 10명
 
-// Some customers leave the queue
+// 손님(customers)들이 대기줄을 떠남
 customers = 8
 println(customers)
 // 8
@@ -90,3 +90,59 @@ There are 11 customers
 더 자세한 정보는 [String templates](https://kotlinlang.org/docs/strings.html) 를 통해 확인할 수 있습니다.
 
 앞선 예제들에서 변수에 타입이 선언이 되지 않았습니다. 코틀린은 타입을 명시하지 않아도, 변수가 선언될 때 할당된 값을 기반으로 타입을 추론해줍니다.
+
+## 기본 자료형(Basic types)
+
+코틀린의 모든 변수와 자료구조는 데이터 타입을 갖습니다. 컴파일러는 데이터의 타입을 통해 해당 변수 혹은 자료구조로 어떤 작업이 가능한지 판단하기 때문에 매우 중요한 요소입니다.
+
+앞서 `customers` 예시를 통해 코틀린에서는 변수에 어떤 데이터 타입이 들어가는지 타입 추론(type inference)을 하는 것을 확인했습니다.\
+`customers` 변수 에 정수 정수 값이 할당되었기에,`customers` 는 `Int` 데이터 타입을 갖을 것으로 추론합니다.\
+그 결과 `customers` 변수를 사용하는 산술 연산이 가능합니다.
+
+```kotlin
+var customers = 10
+
+// 손님(customers)들이 대기줄을 떠남
+customers = 8
+
+customers = customers + 3 // 덧셈 예시: 11
+customers += 7            // 덧셈 예시: 18
+customers -= 3            // 뺄셈 예시: 15
+customers *= 2            // 곱셈 예시: 30
+customers /= 3            // 나눗셈 예시: 10
+
+println(customers) // 10
+```
+
+코틀린은 다음과 같은 기본 자료형이 있습니다.
+
+| Category               | Basic types                        |
+| ---------------------- | ---------------------------------- |
+| Integers               | `Byte`, `Short`, `Int`, `Long`     |
+| Unsigned integers      | `UByte`, `UShort`, `UInt`, `ULong` |
+| Floating-point numbers | `Float`, `Double`                  |
+| Booleans               | `Boolean`                          |
+| Characters             | `Char`                             |
+| Strings                | `String`                           |
+
+코틀린의 기본 자료형과 속성들에 대한 더 자세한 정보는 [Basic types](https://kotlinlang.org/docs/basic-types.html) 에서 확인할 수 있습니다.
+
+자료형을 사용하면 변수를 초기화하기 전에 선언해두고 나중에 초기화를 해줄 수 있습니다. 변수를 사용하기 전에는 초기화를 해 주어야 합니다.
+
+초기화를 하지 않고 변수를 선언해 줄 경우, `:` 를 사용해 타입을 명시해주어야 합니다.
+
+```kotlin
+// 초기화를 하지 않고 변수 선언
+val d: Int
+// 변수 초기화
+d = 3
+
+// 명시적으로 변수 타입 선언하며 초기화
+val e: String = "hello"
+
+// 변수가 초기화되었기에 읽을 수 있습니다.
+println(d) // 3
+println(e) // hello
+```
+
+## Collections
