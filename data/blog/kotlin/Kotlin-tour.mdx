@@ -15,7 +15,7 @@ Kotlin tour 는 코틀린 공식 도큐먼트에서 코틀린의 기초 학습�
 
 Kotlin 을 해당 도큐먼트로 공부한 내용을 이번 포스트에 정리해보겠습니다.
 
-## Hello world
+# Hello world
 
 ```kotlin
 fun main() {
@@ -39,7 +39,7 @@ Hello, world!
 
 코틀린에서 변수는 크게 `val` 과 `var` 이 있습니다.
 
-- `val` 은 read-only 인 불변(imutable) 변수를 선언할 때 사용합니다.
+- `val` 은 read-only 인 불변(immutable) 변수를 선언할 때 사용합니다.
 - `var` 은 가변(mutable) 변수를 선언할 때 사용합니다.
 
 변수에 값 할당은 `=` 을 통해 이루어집니다.
@@ -91,7 +91,7 @@ There are 11 customers
 
 앞선 예제들에서 변수에 타입이 선언이 되지 않았습니다. 코틀린은 타입을 명시하지 않아도, 변수가 선언될 때 할당된 값을 기반으로 타입을 추론해줍니다.
 
-## 기본 자료형(Basic types)
+# 기본 자료형(Basic types)
 
 코틀린의 모든 변수와 자료구조는 데이터 타입을 갖습니다. 컴파일러는 데이터의 타입을 통해 해당 변수 혹은 자료구조로 어떤 작업이 가능한지 판단하기 때문에 매우 중요한 요소입니다.
 
@@ -145,4 +145,72 @@ println(d) // 3
 println(e) // hello
 ```
 
-## Collections
+# 컬렉션(Collections)
+
+프로그래밍을 할 때에는 데이터를 자료구조 안에 넣는 것이 추후 처리를 하는데 유리합니다. 코틀린을 이를 위해 컬렉션(collections)를 제공합니다.
+
+코틀린은 아이템들(items)을 그룹화 하기 위해 다음과 같은 컬렉션을 제공합니다.
+
+| 컬렉션 타입 | 설명                                                               |
+| ----------- | ------------------------------------------------------------------ |
+| Lists       | 아이템들을 순서가 보장된 형태로 담고 있는 컬렉션들                 |
+| Sets        | 아이템들을 순서가 보장되지 않는 유니크한 형태로 담고 있는 컬렉션들 |
+| Maps        | key 가 유니크하고 하나의 value 를 가리키는 key-value 쌍들          |
+
+각각의 컬렉션은 타입은 mutable 할 수도 있고 immutable 할 수도 있습니다.
+
+## List
+
+List 들은 아이템을 추가된 순서대로 저장합니다. 또한 중복된 아이템을 허용합니다.
+
+수정 불가능(immutable)한 read-only [`List`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/-list/) 를 생성하기 위해서는 [`listOf()`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/list-of.html) 함수를 사용합니다.
+
+수정 가능한(mutable) [`MutableList`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/-mutable-list.html)를 생성하기 위해서는 [`mutableListOf()`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/mutable-list-of.html) 함수를 사용합니다.
+
+리스트를 생성할 때, 코틀린은 저장된 아이템의 타입을 추론합니다. 명시적으로 타입을 표시하기 위해서는 `<>` 를 사용해 타입을 표기해줍니다.
+
+```kotlin
+// Read only 리스트
+val readOnlyShapes = listOf("triangle", "square", "circle")
+println(readOnlyShapes)
+// [triangle, square, circle]
+
+// 명시적으로 타입을 선언한 Mutable list
+val shapes: MutableList<String> = mutableListOf("triangle", "square", "circle")
+println(shapes)
+// [triangle, square, circle]
+```
+
+```bash
+# 출력
+[triangle, square, circle]
+[triangle, square, circle]
+```
+
+> > 원하지 않는 수정을 방지하기 위해서는, `List` 로 할당을 하여 mutable list 의 read-only view 를 얻을 수 있습니다. 이를 `캐스팅(casting)` 이라고 합니다.
+
+list 는 순서가 보장되기 때문에 [indexed access operator](https://kotlinlang.org/docs/operator-overloading.html#indexed-access-operator)`[]` 를 통해 아이템에 접근할 수 있습니다.
+
+```kotlin
+val readOnlyShapes = listOf("triangle", "square", "circle")
+println("The first item in the list is: ${readOnlyShapes[0]}")
+// The first item in the list is: triangle
+```
+
+```bash
+# 출력
+The first item in the list is: triangle
+```
+
+list 의 [`.first()`] (https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/first.html), [`.last()`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/last.html) 함수를 사용해 각각 처음, 마지막 아이템에 접근할 수 있습니다.
+
+```kotlin
+val readOnlyShapes = listOf("triangle", "square", "circle")
+println("The first item in the list is: ${readOnlyShapes.first()}")
+// The first item in the list is: triangle
+```
+
+```bash
+# 출력
+The first item in the list is: triangle
+```
