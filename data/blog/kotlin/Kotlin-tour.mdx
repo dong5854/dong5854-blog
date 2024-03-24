@@ -187,7 +187,7 @@ println(shapes)
 [triangle, square, circle]
 ```
 
-> > 원하지 않는 수정을 방지하기 위해서는, `List` 로 할당을 하여 mutable list 의 read-only view 를 얻을 수 있습니다. 이를 `캐스팅(casting)` 이라고 합니다.
+> 원하지 않는 수정을 방지하기 위해서는, `List` 로 할당을 하여 mutable list 의 read-only view 를 얻을 수 있습니다. 이를 `캐스팅(casting)` 이라고 합니다.
 
 list 는 순서가 보장되기 때문에 [indexed access operator](https://kotlinlang.org/docs/operator-overloading.html#indexed-access-operator)`[]` 를 통해 아이템에 접근할 수 있습니다.
 
@@ -202,7 +202,7 @@ println("The first item in the list is: ${readOnlyShapes[0]}")
 The first item in the list is: triangle
 ```
 
-list 의 [`.first()`] (https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/first.html), [`.last()`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/last.html) 함수를 사용해 각각 처음, 마지막 아이템에 접근할 수 있습니다.
+list 의 [`.first()`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/first.html), [`.last()`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/last.html) 함수를 사용해 각각 처음, 마지막 아이템에 접근할 수 있습니다.
 
 ```kotlin
 val readOnlyShapes = listOf("triangle", "square", "circle")
@@ -243,3 +243,187 @@ true
 ```
 
 mutable 한 리스트에서 값을 추가하거나 빼려면 각각 [`.add()`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/-mutable-list/add.html), [`.remove()`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/remove.html) 함수를 사용할 수 있습니다.
+
+## Set
+
+List 들은 순서가 존재하고 중복된 아이템들을 저장하는 반면, Set 은 **순서가 보장되지 않고 중복을 허용하지 않습니다.**
+
+수정 불가능(immutable)한 read-only [`Set`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/-set/) 를 생성하기 위해서는 [`setOf()`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/set-of.html) 함수를 사용합니다.
+
+수정 가능한(mutable) [`MutableSet`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/-mutable-set/)를 생성하기 위해서는 [`mutableSetOf()`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/mutable-set-of.html) 함수를 사용합니다.
+
+셋을 생성할 때, 코틀린은 저장된 아이템의 타입을 추론합니다. 명시적으로 타입을 표시하기 위해서는 `<>` 를 사용해 타입을 표기해줍니다.
+
+```kotlin
+// Read-only 셋
+val readOnlyFruit = setOf("apple", "banana", "cherry", "cherry")
+// 명시적으로 타입을 선언한 Mutable 셋
+val fruit: MutableSet<String> = mutableSetOf("apple", "banana", "cherry", "cherry")
+
+println(readOnlyFruit)
+// [apple, banana, cherry]
+```
+
+```bash
+# 출력
+[apple, banana, cherry]
+```
+
+Set 은 중복을 허용하지 않기 때문에 중복된 `"cherry"` 아이템이 제거된 걸 확인할 수 있습니다.
+
+> 원하지 않는 수정을 방지하기 위해, `Set` 으로 캐스팅하여 mutable set 의 read-only view 를 얻을 수 있습니다.
+>
+> ```kotlin
+> val fruit: MutableSet<String> = mutableSetOf("apple", "banana", "cherry", "cherry")
+> val fruitLocked: Set<String> = fruit
+> ```
+
+[`.count()`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/count.html) 함수를 통해 set 의 아이템 개수를 얻을 수 있습니다.
+
+```kotlin
+val readOnlyFruit = setOf("apple", "banana", "cherry", "cherry")
+println("This set has ${readOnlyFruit.count()} items")
+// This set has 3 items
+```
+
+```bash
+# 출력
+This set has 3 items
+```
+
+[`in` 연산](https://kotlinlang.org/docs/operator-overloading.html#in-operator)을 사용해 set 안에 아이템이 있는지 확인할 수 있습니다.
+
+```kotlin
+val readOnlyFruit = setOf("apple", "banana", "cherry", "cherry")
+println("banana" in readOnlyFruit)
+// true
+```
+
+```bash
+# 출력
+true
+```
+
+mutable 한 셋에서 값을 추가하거나 빼려면 각각 [`.add()`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/-mutable-list/add.html), [`.remove()`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/remove.html) 함수를 사용할 수 있습니다.
+
+```kotlin
+val fruit: MutableSet<String> = mutableSetOf("apple", "banana", "cherry", "cherry")
+fruit.add("dragonfruit")    // Add "dragonfruit" to the set
+println(fruit)              // [apple, banana, cherry, dragonfruit]
+
+fruit.remove("dragonfruit") // Remove "dragonfruit" from the set
+println(fruit)              // [apple, banana, cherry]
+```
+
+```bash
+# 출력
+[apple, banana, cherry, dragonfruit]
+[apple, banana, cherry]
+```
+
+## Map
+
+Map 들은 아이템을 key-avlue 쌍으로 저장합니다. key 를 참조하여 value 값에 접근할 수 있습니다.
+음식점의 메뉴판처럼 음식의 이름(key) 를 통해 가격(value) 를 찾을 수 있습니다.
+Map 은 list 처럼 numbered index 를 활용하지 않고 value 값을 찾을 때 유용합니다.
+value 는 중복될 수 있지만, key 는 중복이 있으면 안됩니다.
+
+수정 불가능(immutable)한 read-only [`Map`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/-map/) 를 생성하기 위해서는 [`mapOf()`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/map-of.html) 함수를 사용합니다.
+
+수정 가능한(mutable) [`MutableMap`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/-mutable-map/)를 생성하기 위해서는 [`mutableMapOf()`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/mutable-map-of.html) 함수를 사용합니다.
+
+맵을 생성할 때 코틀린은 저장된 아이템들의 타입을 추론합니다. 명시적으로 타입을 표시하기 위해서는 `<>` 를 사용해 타입을 표기해줍니다.
+
+가장 쉽게 맵을 생성하는 방법은 key 와 연관된 value 사이에 [`to`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin/to.html) 를 사용하는 겁니다.
+
+```kotlin
+// Read-only 맵
+val readOnlyJuiceMenu = mapOf("apple" to 100, "kiwi" to 190, "orange" to 100)
+println(readOnlyJuiceMenu)
+// {apple=100, kiwi=190, orange=100}
+
+// 명시적으로 타입을 선언한 Mutable 맵
+val juiceMenu: MutableMap<String, Int> = mutableMapOf("apple" to 100, "kiwi" to 190, "orange" to 100)
+println(juiceMenu)
+// {apple=100, kiwi=190, orange=100}
+```
+
+> 원하지 않는 수저을 방지하기 위해, `Map` 으로 캐스팅하여 mutable mpa 의 read-only view 를 얻을 수 있습니다.
+>
+> ```kotlin
+> val juiceMenu: MutableMap<String, Int> = mutableMapOf("apple" > to 100, "kiwi" to 190, "orange" to 100)
+> val juiceMenuLocked: Map<String, Int> = juiceMenu
+> ```
+
+map은 [indexed access operator](https://kotlinlang.org/docs/operator-overloading.html#indexed-access-operator)`[]` 에 key를 넣어 value에 접근할 수 있습니다.
+
+```kotlin
+// Read-only map
+val readOnlyJuiceMenu = mapOf("apple" to 100, "kiwi" to 190, "orange" to 100)
+println("The value of apple juice is: ${readOnlyJuiceMenu["apple"]}")
+// The value of apple juice is: 100
+```
+
+```bash
+# 출력
+The value of apple juice is: 100
+```
+
+[`.count()`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/count.html) 함수를 통해 map 의 아이템 개수를 얻을 수 있습니다.
+
+```kotlin
+// Read-only map
+val readOnlyJuiceMenu = mapOf("apple" to 100, "kiwi" to 190, "orange" to 100)
+println("This map has ${readOnlyJuiceMenu.count()} key-value pairs")
+// This map has 3 key-value pairs
+```
+
+```bash
+# 출력
+This map has 3 key-value pairs
+```
+
+mutable 한 맵에서 값을 추가하거나 빼려면 각각 [`.put()`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/-mutable-map/put.html), [`.remove()`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/remove.html) 함수를 사용할 수 있습니다.
+
+```kotlin
+val juiceMenu: MutableMap<String, Int> = mutableMapOf("apple" to 100, "kiwi" to 190, "orange" to 100)
+juiceMenu.put("coconut", 150) // Add key "coconut" with value 150 to the map
+println(juiceMenu)
+// {apple=100, kiwi=190, orange=100, coconut=150}
+
+juiceMenu.remove("orange")    // Remove key "orange" from the map
+println(juiceMenu)
+// {apple=100, kiwi=190, coconut=150}
+```
+
+[`containsKey`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/contains-key.html) 를 통해 특정 키가 이미 존재하는지 확인 할 수 있습니다.
+
+```kotlin
+val readOnlyJuiceMenu = mapOf("apple" to 100, "kiwi" to 190, "orange" to 100)
+println(readOnlyJuiceMenu.containsKey("kiwi"))
+// true
+```
+
+map 의 keys 혹은 values collection 을 얻기 위해서 [`keys`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/-map/keys.html) 혹은 [][][`value`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/-map/values.html) 속성을 사용할 수 있습니다.
+
+```kotlin
+val readOnlyJuiceMenu = mapOf("apple" to 100, "kiwi" to 190, "orange" to 100)
+println(readOnlyJuiceMenu.keys)
+// [apple, kiwi, orange]
+println(readOnlyJuiceMenu.values)
+// [100, 190, 100]
+```
+
+[`in` 연산](https://kotlinlang.org/docs/operator-overloading.html#in-operator)을 사용해 key 혹은 value 가 맵에 있는지 확인할 수 있습니다.
+
+```kotlin
+val readOnlyJuiceMenu = mapOf("apple" to 100, "kiwi" to 190, "orange" to 100)
+println("orange" in readOnlyJuiceMenu.keys)
+// true
+println(200 in readOnlyJuiceMenu.values)
+// false
+```
+
+collection 들의 더 자세한 내용은 [`Collections`](https://kotlinlang.org/docs/collections-overview.html) 에서 확인할 수 있습니다.
+
+# 제어문 (Control Flow)
