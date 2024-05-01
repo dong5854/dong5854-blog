@@ -35,11 +35,7 @@ JWT에 대해 알기 위해서는 우선 인증과 인가의 개념에 대해서
 (출처: https://dev.to/thecodearcher/what-really-is-the-difference-between-session-and-token-based-authentication-2o39)
 
 이러한 문제점을 해결하기 위한 <span style={{color: "red"}}>전통적인 기술로는 "세션"</span>이 있다. 사용자가 로그인에 성공하면 <span style={{color: "red"}}>서버는 "세션 표딱지"라는 것을 출력</span>한다. 이 표딱지를 반으로 나누어 반은 사용자에게 반은 자신의 메모리에 올리게 된다. 경우에 따라서는 하드디스크나 데이터베이스에 넣어놓기도 한다.
-
-<span style={{ color: 'red' }}>
-  표 반쪽을 받은 사용자의 브라우저가 이 표를 Session ID라는 이름의 쿠키로 저장
-</span>
-을 하고 이 브라우저는 웹사이트에 요청을 보낼 때마다 이 표딱지를 실어보낸다. 이렇게 받은 표딱지 반쪽이
+<span style={{ color: 'red' }}>표 반쪽을 받은 사용자의 브라우저가 이 표를 Session ID라는 이름의 쿠키로 저장</span>을 하고 이 브라우저는 웹사이트에 요청을 보낼 때마다 이 표딱지를 실어보낸다. 이렇게 받은 표딱지 반쪽이
 요청에 실려오면 <span style={{ color: 'red' }}>
   서버는 이를 메모리에서 맞는 나머지 반쪽 짝이 있는지 확인하고 이것이 확인되면 인가(Authorization)을
   해준다.
@@ -102,7 +98,7 @@ JWT를 사용하는 서비스에서는 <span style={{ color: 'red' }}>사용자�
 
 헤더(header)를 디코딩하여 살펴보면 2가지 정보가 담겨있다.
 
-```JWT
+```JSON
 {
   "alg": "HS256",
   "typ": "JWT"
@@ -138,7 +134,7 @@ access 토큰과 refresh 토큰을 발급하고 클라이언트에게 보내고 
 
 이러한 한계점들 때문에 자신의 서비스가 JWT를 사용하기 적합한지 충분한 고려가 필요하다.
 
-# JWT의 저장 장소
+# JWT의 저장 장소와 이에 따른 웹 취약점
 
 JWT를 사용하기 위해서는 이를 브라우저에 저장할 필요가 있다.
 이 때 주로 사용되는게 localStorage 혹은 Cookie 인데 저장 방식에 따라 cookie 는 CSRF, localStorage 는 XSS 라는 웹 취약점을 가지게 된다.
