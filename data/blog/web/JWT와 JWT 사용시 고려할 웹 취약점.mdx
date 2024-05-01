@@ -197,7 +197,7 @@ public class WebSecurityConfig extends WebSecurityConfigurerAdapter{
 ## CSRF의 예시
 [spring.io의 도큐먼트](https://docs.spring.io/spring-security/reference/features/exploits/csrf.html)에서 CSRF에 대한 예시를 보여주는데 이를 간단하게 번역한다면 다음과 같다.
 
-당신이 사용중인 은행의 웹사이트에서 현재 로그인 중인 유저가 손을 송금할 수 있는 폼이 아와 같이 있다고 하자.
+당신이 사용중인 은행의 웹사이트에서 현재 로그인 중인 유저가 손을 송금할 수 있는 폼이 다음과 같이 있다고 하자.
 
 ```HTML
 <form method="post"
@@ -368,7 +368,7 @@ Content-Security-Policy HTTP 헤더를 사용하거나 `<meta>` 요소를 사용
 
 또한 로컬 변수에 인 메모리로 저장하는 방법 또한 사용된다.하지만 이 방법은 브라우저를 끄면 토큰이 사라지기 때문의 사용자 경험이 부정적일 수 있어 보통 access token 을 인 메모리에 시간을 유효 시간을 짧게 주어 저장하고, refresh 토큰은 쿠키에 저장하는 방식을 채택할 때 사용된다고 한다.
 
-Ehgks 저장 장소에 대한 취약점 방비와 더불어 토큰에 클라리언트의 fingerprint 정보를 저장하는 등의 대비 또한 필요하다.
+또한 저장 장소에 대한 취약점 방비와 더불어 토큰에 클라리언트의 fingerprint 정보를 저장하는 등의 대비 또한 필요하다.
 
 결국에는 여러 방법들의 장점과 단점을 잘 파악하고 본인의 서비스에 적합한 방식을 선택하고 보안 취약점에 대한 적절한 조치를 취하는 것이 좋을 것 같다.
 
