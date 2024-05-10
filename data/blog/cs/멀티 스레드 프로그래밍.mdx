@@ -1,0 +1,588 @@
+---
+title: '멀티 스레드 프로그래밍'
+date: '2024-05-06'
+tags: ['운영체제']
+draft: false
+summary: C# 에서 스레드 풀, 캐시 이론, 메모리 베리어등
+---
+
+# 스레드 풀(Thread Pool)
+
+![스레드풀이미지](/static/images/blog/스레드풀이미지.png)
+
+스레드 풀은 스레드를 사용자가 설정해둔 개수만큰 미리 생성해둔 후 작업 큐(Queue)에 들어오는 작업들을 스레드가 하나씩 맡아 처리하는 것이다.
+
+## 스레드 풀을 사용하는 이유
+
+스레드가 생성되거나 수거될 때 무시하지 못할 양의 생성 비용이 들어간다.
+또한 스레드의 개수가 많으면 몇가지 문제가 있는데, 첫번째로는 스레드가 하나하나 할 작업이 별로 없어져 오히려 스레드를 생성하고 수거하는 비용이 실제로 하는 작업보다 커진다. 두번째로, 스레드의 컨텍스트 스위치에 인한 부하가 커져 오히려 효율이 떨어진다. 마지막으로 서버의 메모리 부족을 유발할 수 있기 때문이다.
+
+## 스레드 풀을 사용할 때 주의점
+
+스레드 풀의 스레드가 전부 사용되고 반환되지 못하면 프로그램의 실행이 더 이상 되지 못 할 수 있다.
+
+## 코드
+
+C# 에서 스레드 풀을 사용하지 않고 스레드를 생성하는 코드는 아래와 같다. start()를 통해 스레드를 시작하고 join()을 사용해 해당 쓰레드가 종료되기까지 기다렸다가 다음으로 넘어간다.
+
+```csharp
+using System;
+using System.Threading;
+
+namespace ServerCore
+{
+    class Program
+    {
+        static void MainThread()
+        {
+            for (int i = 0; i < 5; i++)
+                Console.WriteLine("Hello Thread!");    
+        }
+
+        static void Main(string[] args)
+        {
+            ThreadPool.QueueUserWorkItem(MainThread);
+
+            Thread t = new Thread(MainThread);
+            t.Name = "Test Thread";
+            t.IsBackground = true;
+            t.Start();
+
+            Console.WriteLine("Waiting for Thread!");
+
+            t.Join();
+            Console.WriteLine("Hello World!");
+        }
+    }
+}
+```
+
+만약 다음과 같이 스레드를 1000개 실행한다면 스레드의 생성을 1000개 하는 것 자체는 가능하지만 이는 위에서 설명한 것처럼 오히려 실행의 효율을 떨어뜨릴 수 있다.
+
+```csharp
+for (int i = 0; i < 1000; i++)
+{
+	Thread t = new Thread(MainThread);
+	t.Name = "Test Thread";
+	t.IsBackground = true;
+	t.Start();
+}
+```
+
+스레드 풀은 아래와 같이 사용할 수 있다. serMinThreads()와 SetMaxThreads()를 통해 스레드 풀의 스레드 개수를 제어할 수 있다.
+
+```csharp
+using System;
+using System.Threading;
+
+namespace ServerCore
+{
+    class Program
+    {
+        static void MainThread(object state)
+        {
+            for (int i = 0; i < 5; i++)
+                Console.WriteLine("Hello Thread!");    
+        }
+
+        static void Main(string[] args)
+        {
+            ThreadPool.SetMinThreads(1, 1);
+            ThreadPool.SetMaxThreads(5, 5);
+
+            ThreadPool.QueueUserWorkItem(MainThread);
+        }
+    }
+}
+```
+
+## Task
+
+스레드의 문제를 해결하기 위해 스레드 풀을 사용했지만, C# 스레드 풀의 제약 사항으로 인해 작업이 완료 되기도 전에 프로세스가 종료 될 수 있다는 단점이 있다.
+
+이 모든 단점을 커버 해주는 것이 Task인데, Task는 기본적으로 백그라운드 속성의 스레드이며, 스레드 풀을 사용하기 때문에 추가적인 리소스의 소모가 없으며, 해당 스레드가 종료 할 때까지 대기하는 메소드도 존재하고 결과값 또한 반환 받을 수 있다.
+
+Task는 스레드와 스레드 풀의 문제를 모두 해결해주기 때문에 C#에서 스레드를 생성할 때는 Task의 사용이 권장된다.
+
+# 컴파일러 최적화에 의한 오류
+
+아래의 코드를 visual studio에서 debug 모드로 실행시키면 문제없이 작동한다.
+
+```csharp
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace ServerCore
+{
+    class Program
+    {
+        // 스레드는 각자 자신의 스택 메모리를 갖지만, 전역으로 선언된 변수는 모든 스레드가 공통으로 사용을 해서 동시 접근이 가능하다.
+        static bool _stop = false;
+
+        static void ThreadMain()
+        {
+            Console.WriteLine("쓰레드 시작!");
+
+            while (_stop == false)
+            {
+                //누군가가 stop 신호를 해주기를 기다린다.
+            }
+
+            Console.WriteLine("쓰레드 종료!");
+        }
+        static void Main(string[] args)
+        {
+            Task t = new Task(ThreadMain);
+            t.Start();
+
+            // 1초 동안 대기
+            Thread.Sleep(1000);
+
+            _stop = true;
+
+            Console.WriteLine("Stop 호출");
+            Console.WriteLine("종료 대기중");
+
+            t.Wait();
+
+            Console.WriteLine("종료 성공");
+        }
+    }
+}
+```
+
+결과:
+
+```bash
+쓰레드 시작!
+Stop 호출
+쓰레드 종료!
+종료 대기중
+종료 성공
+```
+
+하지만 이를 막상 release 모드로 컴파일해서 실행하면 아래와 같이 무한 대기 상태에 빠진다.
+결과:
+```
+쓰레드 시작!
+Stop 호출
+종료 대기중
+```
+
+이러한 현상이 일어나는 이유는 컴파일러가 최적화를 하는 과정에서
+
+```csharp
+while(_stop == false)
+{
+
+}
+```
+
+는 아래과 같은 모습으로 최적화가 되기 때문이다.
+
+```csharp
+if (_stop == false)
+{
+	while (true)
+    {
+
+    }
+}
+```
+
+이런 모습으로 최적화가 되는 이유는 컴파일러는 멀티 스레드를 고려하지 않고 최적화를 진행하기 때문인데 이를 해결하기 위해 `static bool _stop = false;` 를 `volatile static bool _stop = false;`를 사용해 해결할 수 있는데 `volatile` 키워드는 동시에 실행되는 여러 스레드에 의해 필드가 수정될 수 있음을 나타낸다. `volatile`로 선언된 필드는 특정 종류의 최적화에서 제외된다.
+다만, c#에서 `volatile`은 특이하게 작동하기 때문에 사용을 권장하지 않고 다른 옵션을 사용하기를 추천한다고 한다.
+
+# 캐시 이론
+
+아래의 그림은 저장공간의 계층 구조를 나타낸다.
+
+![저장공간계층구조](/static/images/blog/저장공간계층구조.png)
+
+그림에서 확인 할 수 있듯이 캐시 메모리는 저장 공간의 계층 구조 상 최상단에 위치해 메인 메모리에 비해 훨씬 작고 가격이 비싸지만 CPU와 물리적으로 가깝기 때문에 속도가 빠르다는 장점이 있다. 캐시는 추가적으로 L1 캐시, L2 캐시, L3 캐시로 나뉜다.
+
+캐시에는 2가지 철학이 있는데,
+- 시간적 지역성(TEMPORAL LOCALITY)
+- 공간적 지역성(SPATIAL LOCALITY)
+이다.
+
+**시간적 지역성**은 시간적으로 보면 방금 사용한 변수가 또 다시 사용될 확률이 높다는 것이다. 그렇기 때문에 방금 사용한 변수를 캐싱한다.
+
+**공간적 지역성**은 공간적으로 방금 접근한 변수와 인접한 주소에 있는 변수가 다시 사용될 확률이 높다는 것이다. 그렇기 때문에 방금 사용한 변수와 인접한 변수를 캐싱한다.
+
+아래의 코드로 캐싱을 확인해볼 수 있다.
+
+```csharp
+using System;
+
+namespace ServerCore
+{
+    class Program
+    {
+        static void Main(string[] args)
+        {
+            int[,] arr = new int[10000, 10000];
+
+            {
+                long now = DateTime.Now.Ticks;
+                for (int y = 0; y < 10000; y++)
+                    for (int x = 0; x < 10000; x++)
+                        arr[y, x] = 1;
+                long end = DateTime.Now.Ticks;
+                Console.WriteLine($"(y, x) 순서 걸린 시간 {end - now}");
+            }
+
+            {
+                long now = DateTime.Now.Ticks;
+                for (int y = 0; y < 10000; y++)
+                    for (int x = 0; x < 10000; x++)
+                        arr[x, y] = 1;
+                long end = DateTime.Now.Ticks;
+                Console.WriteLine($"(x, y) 순서 걸린 시간 {end - now}");
+            }
+        }
+    }
+}
+```
+
+위의 코드의 실행 결과는 아래와 같다.
+```bash
+(y, x) 순서 걸린 시간 2797474
+(x, y) 순서 걸린 시간 4785704
+```
+논리적으로 생각하면 2개의 2 중 for문은 같은 실행 시간을 가져야 하지만 실제로는 적지않은 차이가 나타나는데 이는 캐시의 공간적 지역성과 관련이 있다.
+
+위의 코드에서는 100000 100000 배열이지만 간단히 3 3 배열이라고 생각해보자.
+
+```bash
+[][][]
+[][][]
+[][][]
+```
+
+(y, x) 순서에서는 아래와 같은 순서로 접근할 것이다.
+
+```bash
+[1][2][3]
+[4][5][6]
+[7][8][9]
+```
+
+이는 배열에서 메모리가 인접한 순서로 접근한 것이기 때문에 Cache Hit가 일어나 실행 속도가 빠른 것이다.
+
+이에 반해 (x, y) 순서로 메모리에 접근하면
+
+```bash
+[1][4][7]
+[2][5][8]
+[3][6][9]
+```
+
+위와 같은 순서로 접근하여 Cache Miss가 나 (y, x)에 비해 실행 시간이 길어졌다.
+
+이런 캐싱은 편리하지만 멀티 스레드 환경에서는 아래에서 설명할 메모리 가시성 문제를 일으킨다.
+
+# 메모리 배리어
+
+아래의 코드를 보고 논리적으로 생각해보면 Main 메소드의 while 문은 절대 탈출 할 수가 없어보인다.
+
+```csharp
+using System;
+using System.Threading.Tasks;
+
+namespace ServerCore
+{
+    class Program
+    {
+        static int x = 0;
+        static int y = 0;
+        static int r1 = 0;
+        static int r2 = 0;
+
+        static void Thread_1()
+        {
+            y = 1; // Store y
+            r1 = x; // Load x
+        }
+
+        static void Thread_2()
+        {
+            x = 1; // Store x
+            r2 = y; // Load y
+        }
+
+        static void Main(string[] args)
+        {
+            int count = 0;
+            while(true)
+            {
+                count++;
+                x = y = r1 = r2 = 0;
+
+                Task t1 = new Task(Thread_1);
+                Task t2 = new Task(Thread_2);
+                t1.Start();
+                t2.Start();
+
+                Task.WaitAll(t1, t2);
+
+                if (r1 == 0 && r2 == 0)
+                    break;
+            }
+
+            Console.WriteLine($"{count} 번만에 빠져나옴");
+        }
+    }
+}
+```
+파란색이 Thread_1, 노란색이 Thread_2 라고 했을 때, Thread1 이 `y = 1` => `r1 = x` 순서로 동작하고, Thread_2가 `x = 1` => `r2 = y` 순서로 동작한다면, r1 과 r2 가 동시에 0 인 경우의 수는 없어야한다.
+
+![메모리베리어1](/static/images/blog/메모리베리어1.png)
+
+하지만 실제로 실행을 해보면 r1과 r2가 동시에 0인 상황이 발생해 while문을 빠져나오게 된다.
+
+![메모리베리어콘솔](/static/images/blog/메모리베리어콘솔.png)
+
+이런 결과가 나타나는 이유는 <span style={{ color: 'red' }}>CPU에서 일련의 명령어를 실행 할 때 의존성이 없는 명령어라고 판단이 되면 명령어의 순서를 뒤바꿀 수 있기 때문</span>이다.
+
+즉 CPU가 보기에는 `y = 1` 과 `r1 = x`는 연관성이 없는 작업이기 때문에 이 순서를 뒤바꿀 수 있고 아래와 같이 최적화가 되면 반복문을 탈출하게 된다.
+
+![메모리베리어2](/static/images/blog/메모리베리어2.png)
+
+이런식의 최적화는 싱글 스레드 환경에서는 문제가 되지 않는다. 하지만 멀티 스레드 환경에서는 위의 상황처럼 우리가 예상한 로직이 꼬이는 결과를 초래한다.
+
+이러한 문제를 해결하기 위해 **메모리 배리어**가 사용된다.
+
+## 메모리 배리어의 용도
+
+메모리 배리어에는 2가지 용도가 있다.
+
+- 코드 재배치 억제
+- 가시성
+
+### 코드 재배치 억제
+코드 재배치 억제는 말 그대로 코드 재배치를 억제하는 것이다.
+
+위에서 `Thread_1` 메소드와 `Thread_2` 메소드를 아래와 같이 수정해보자.
+
+```csharp
+        static void Thread_1()
+        {
+            y = 1; // Store y
+
+            //-------------------------------
+            Thread.MemoryBarrier();
+
+            r1 = x; // Load x
+        }
+
+        static void Thread_2()
+        {
+            x = 1; // Store x
+
+            //-------------------------------
+            Thread.MemoryBarrier();
+
+            r2 = y; // Load y
+        }
+```
+`Thread_1` 메서드에서 `Thread.MemoryBarrier()`, 메모리 배리어를 통해 `y = 1` 과 `r1 = x`가 멋대로 재배치 되는 상황을 방지해주는 경계선을 만들어 수 있다. 실제로 수정 후 코드를 실행하면 무한 루트를 돌게 된다.
+
+메모리 베리어는 여러 종류가 있다.
+
+- full Memory Barrier(ASM MFENCE, C# Thread.MemoryBarrier) : Store/Load 둘 다 막는다.
+- Store Memory Barrier(ASM SFENCE) : Store만 막는다.
+- Load Memory Barrier(ASM LFENCE) : LOAD만 막는다.
+
+하지만 일반적으로 프로그래밍 할 때는 이렇게까지 세분화하지는 않고, 대부분 Full Memory Barrier 가 사용된다.
+
+### 가시성
+
+가시성이란 "한 Thread에서 변경한 특정 메모리의 값이, 다른 Thread에서 제대로 읽어지는지"를 나타낸다.
+
+이런 메모리 가시성 문제가 발생하는 이유 중 하나는 앞에서 언급한 레지스터와 캐시의 존재 때문이다. 각각의 코어(CPU)는 메인 메모리와 별도로 각각의 레지스터와 캐시를 갖기 때문에 코어(CPU)A의 캐시가 가지고 있는 내용을 코어(CPU)B에서 확인할 수 없기 때문이다.
+
+다중 코어(CPU)에서 메모리 가시성 문제가 발생하는 두번째 이유는, 컴파일러의 최적화 때문이다. 컴파일러는 프로그램이 최대한 빠르게 실행될 수 있도록 코어(CPU)의 레지스터와 캐쉬를 사용하도록 최적화 하기 때문인 것이다.
+
+메모리 가시성의 유지를 위해 한 코어(CPU)에서의 값 변경은 여러 코어(CPU)가 공유하는 메인 메모리에 반영(commit) 해주고 이 메모리의 값을 다른 코어(CPU) 읽어오는 작업이 수행되어야 한다. 하지만 코어(CPU)의 메인 메모리로 반영하는 작업은 느리기 때문에 적절한 시점에 수행되어야 하는데, 메모리 베리어는 이런 캐시의 값을 메인 메모리에 반영하고, 메인 메모리의 값을 다른 코어에서 읽어오는 작업을 진행하는 시점을 나타내주는 역할도 한다.
+
+이런 메모리 배리어는 직접적으로 선언되지 않더라도 간접접으로 사용되는 경우가 많은데, volatile, lock, atomic과 같은 문법들이 이에 해당된다.
+
+아래의 예제 코드는 'C# 완벽 가이드'라는 책에서 나온 유명한 예제이다.
+
+```csharp
+using System;
+using System.Threading;
+
+namespace ServerCore
+{
+    class Program
+    {
+        int _answer;
+        bool _complete;
+
+        void A()
+        {
+            _answer = 123;
+            Thread.MemoryBarrier(); // Barrier 1
+            _complete = true;
+            Thread.MemoryBarrier(); // Barrier 2
+        }
+        void B()
+        {
+            Thread.MemoryBarrier(); // Barrier 3
+            if (_complete)
+            {
+                Thread.MemoryBarrier(); // Barrier 4
+                Console.WriteLine(_answer);
+            }
+        }
+
+        static void Main(string[] args)
+        {
+        }
+    }
+}
+```
+위의 예제에서 `Barrier 1` 과 `Barrier 2`는 각각 `_answer`과 `_complete`의 쓰기 작업 후에 이를 메모리에 commit 해주는 작업을 해주기 위한 메모리 배리어이고, 아래의 `Barrier 3`와 `Barrier 4`는 각각 `_complete`와 `_answer`의 메모리 읽기 작업 전에 메인 메모리의 값을 갱신받기 위한 메모리 배리어이다.
+
+지금까지 알아본 컴파일러, 하드웨어 최적화로 인한 문제들은 메모리 배리어를 사용하지 않더라도, lock, atomic과 같은 솔루션들이 존재한다.
+
+# Interlocked
+
+아래의 코드를 실행해보자.
+
+```csharp
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace ServerCore
+{
+    class Program
+    {
+        static int number = 0;
+
+        static void Thread_1()
+        {
+            for (int i = 0; i < 100000; i++)
+                number++;
+            
+        }
+
+        static void Thread_2()
+        {
+            for (int i = 0; i < 100000; i++)
+                number--;
+        }
+
+        static void Main(string[] args)
+        {
+            Task t1 = new Task(Thread_1);
+            Task t2 = new Task(Thread_2);
+            t1.Start();
+            t2.Start();
+
+            Task.WaitAll(t1, t2);
+
+            Console.WriteLine(number);
+        }
+    }
+}
+```
+
+논리적으로 생각해보면 `Console.WriteLine(number);`가 출력하는 값은 0이 되어야 한다. 하지만 실제로 출력되는 값은 그렇지 않다.
+
+![NoInterlocked콘솔](/static/images/blog/NoInterlocked콘솔.png)
+
+이런 문제가 발생하는 이유는 RACE CONDITION(경합 조건) 때문이다.
+
+`number++`는 c# 코드 상에서는 한 줄에 나타나지만 실제로는
+1) 메모리 주소에 있는 값을 레지스터에 옮기고,
+2) 레지스터에서 값을 1 늘려준 다음에,
+3) 늘린 값을 과정 1의 메모리에 다시 넣어준다.
+이런 3 단계에 걸쳐 일어난다.
+
+즉 `number++`는 의사 코드로 나누어 표현하면
+```csharp
+int temp = number;
+temp += 1;
+number = temp;
+```
+라는 과정을 거친다는 것인데, 이를 Thread_1과 Thread_2에 대입해 보면,
+```csharp
+        static void Thread_1()
+        {
+            for (int i = 0; i < 100000; i++)
+            {
+                int temp = number; // 0
+                temp += 1; // 1
+                number = temp; // 1
+            }
+        }
+
+        static void Thread_2()
+        {
+            for (int i = 0; i < 100000; i++)
+            {
+                int temp = number; // 0
+                temp -= 1; // -1
+                number = temp; // -1
+            }
+        }
+```
+이렇게 바꿔볼 수 있다.
+
+만약 Thread_1과 Thread_2가 동시에 number 변수에 접근을 하면 위에 달려있는 주석과 같은 흐름에 따라 Thread_1 과 Thread_2 가 각각 한번 실행되어도 0 이 아니라 -1, 1과 같이 다른 값이 number가 될 수 있다. 이런 문제가 for 문에서 여러번 발생해, 위에 처럼 2059 같은 값이 결과로 나올 수 있는 것이다. 또한 이런 현상이 일어가는 횟수는 일정하지 않기 때문에 실행 결과는 매번 다르게 나온다.
+
+이런 현상을 나타낼 때 원자성(atomic)이라는 단어를 자주 사용하게 되는데, 어떤 것이 원자성을 가지고 있다고 하면 원자적이라고 하고, 이는 어떠한 작업이 실행될 때 언제나 완전하게 진행되어 종료되거나, 그럴 수 없는 경우 실행을 하지 않는 경우를 말한다.
+
+이 원자성이란 개념은 멀티 스레드에서만 사용되는 개념이 아니라 데이터베이스에서도 사용되는 개념이다.
+
+게임으로 비유를 하자면 USER1의 아이템을 USER2에게 넘길때 다음과 같은 두 작업으로 나눌 수 있다.
+1) USER2의 인벤토리에 아이템을 넣어라.
+2) USER1의 인벤토리에서 아이템을 삭제해라.
+원자성이 보장이 되지 않고 1번 작업이 실행이 되었는데, 모종의 이유로 2번 작업은 실행이 되지 않으면 해당 아이템이 복사가 되는 문제가 발생할 수 있다.
+
+Thread1 과 Thread2를 아래와 같이 Interlocked를 사용해 수정하면 원자성을 보장받을 수 있다.
+
+```csharp
+        static void Thread_1()
+        {
+            for (int i = 0; i < 100000; i++)
+                Interlocked.Increment(ref number);
+        }
+
+        static void Thread_2()
+        {
+            for (int i = 0; i < 100000; i++)
+                Interlocked.Decrement(ref number);
+        }
+```
+실행을 하면 아래와 같이 정상적으로 0 이 결과로 나온다.
+
+![Interlocked콘솔](/static/images/blog/Interlocked콘솔.png)
+
+Interlocked.Increment()의 인자값으로 number가 아니라 주소값을 넣어주는 이유는 만약 number 즉 int 값을 인자로 받게 되면, 값을 복사해 Interlocked.Increment()에 넘겨주게 되는데 이 사이에 number값의 수정이 일어날 수 있기 때문이다. 따라서 주소값을 받아서 참조를 해야한다.
+
+같은 맥락으로 아래와 같은 예시에서,
+
+```csharp
+        static void Thread_1()
+        {
+            for (int i = 0; i < 100000; i++)
+            {
+                int prev = number;
+                Interlocked.Increment(ref number);
+                int next = number;
+            }        
+        }
+```
+
+prev에서 1을 더한 값이 next인 것을 보장받을 수 없다. 이는 `int prev= number` 를 통해 number의 값을 prev에 할당하거나, `int next = number`를 통해 number의 값을 next에 할당해주는 순간에도 number 값은 다른 스레드의 작업 통해 변경이 일어날 수 있기 때문이다.
+
+
+참고자료:<br/>
+C# 6.0 완벽 가이드(조셉 앨버허리,벤 앨버허리)
+https://www.inflearn.com/course/%EC%9C%A0%EB%8B%88%ED%8B%B0-mmorpg-%EA%B0%9C%EB%B0%9C-part4/inquiries
