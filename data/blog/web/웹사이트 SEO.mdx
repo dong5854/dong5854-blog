@@ -1,0 +1,80 @@
+---
+title: '구글 검색엔진의 동작과 검색엔진 최적화(SEO)'
+date: '2024-05-19'
+tags: ['web']
+draft: false
+summary: 구글 검색엔진의 동작 원리를 파악해 검색엔진 최적화(SEO) 수행하기
+---
+
+웹사이트는 주로 구글 혹은 네이버 검색을 통해 노출되기 때문에 구글 또는 네이버 검색을 했을 때 내가 만든 웹 사이트가 잘 나와야지만 사용자들이 방문할 확률이 올라간다.
+
+검색엔진 최적화란 구글 혹은 네이버와 같은 검색엔진이 나의 웹사이트를 잘 이해하도록 함으로써 검색 결과의 상단에 노출되게 하기 위한 작업이다.
+
+세계적으로 많이 사용하는 검색엔진이 구글인 만큼 구글 문서를 참고하여 구글 검색엔진의 원리에 초점을 맞춰 조사했다.
+
+# 구글 검색의 3단계
+[구글 검색 센터](https://developers.google.com/search/docs/fundamentals/how-search-works?hl=ko) 에 따르면 Google의 검색은 세 단계로 작동하며, 각 단계가 모든 웹 페이지에 적용되지는 않는다고 한다.
+
+이 세가지 단계는 다음과 같다.
+
+1. 크롤링(Crawling) : 구글이 URL을 발견하고 인터넷을 탐색하는 단계
+2. 색인생성(Indexing) : 구글이 페이지가 어떤 내용을 가지고 있고, 인터넷의 다른 페이지와의 관계를 파악하고 해당 정보를 검색 가능한 형식으로 저장하는 단계
+3. 검색결과 게재(Serving) : 구글이 검색 결과에 순위를 부여하고 게재하는 단계
+
+이와 같은 검색의 원리에 따라 본인의 웹 사이트가 상위 결과에 나올 수 있도록 하는 작업을 진행해 검색엔진 최적화를 수행할 수 있다.
+
+## 1. 크롤링(Crawling)
+
+구글은 크롤러라는 자동화된 프로그램을 통해 새로운 웹 페이지나 업데이트된 웹 페이지를 찾는다.
+
+### URL discovery(URL 검색)
+새로운 페이지는 대게 Google 이 이미 크롤링한 전적이 있어 파악된 웹 페이지에서 새로운 페이지로 연결되는 링크를 따라갈 때 발견된다. 이렇게 새로운 페이지와 업데이트된 페이지가 검색되면 파악된 페이지 목록에 추가된다. 이런 과정을 URL dicovery 하고 한다.
+
+### Googlebot
+
+Googlebot 은 구글의 메인 크롤러로 웹 페이지를 가져오는 역할을 한다. Googlebot 은 알고리즘 프로세스를 사용하여 크롤링의 빈도와 가져올 페이지 수와 같은 값들을 결정하고, 대상이 대는 사이트에 과부하를 주지 않기 위해 빠른 크롤링을 수행하지 않는다.
+
+Googlebot 은 브라우저가 웹페이지를 렌더링하는 방식과 유사하게 자바스크립트를 실행한다. 이는 웹사이트가 클라이언트 사이드 렌더링 기술을 사용할 경우 자바스크립트들 사용해 페이지에 콘텐츠를 표시하기 때문에 렌더링하는 과정이 필요하다.
+
+**robots.txt**
+
+robots.txt 는 크롤러가 사이트에서 액세스 할 수 있는 URL을 검색엔진 크롤러에게 알려주기 위해 작성되는 파일로, 주로 요청으로 인해 사이트가 오버로드 되는 것을 방지하기 위해 사용된다. 다만 robots.txt는 크롤러의 동작을 제어하지는 못하기에 지침을 준수하는 크롤러가 아닐 경우 효과가 없을 수 있다.
+robots.txt 에 대한 [goole의 문서](https://developers.google.com/search/docs/crawling-indexing/robots/intro?hl=ko)를 확인하면 자세한 내용이 있다.
+
+**sitemaps**
+
+사이트맵(sitemaps)은 사이트 페이지의 URL을 모아둔 곳으로 검색엔진은 이 파일을 읽어 더 효율적으로 크롤링 하기에 사이트맵의 작성은 google 에 사이트를 노출시킬 때 큰 도움이 된다.
+sitemaps 에 대한 [google의 문서](https://developers.google.com/search/docs/crawling-indexing/sitemaps/overview?hl=ko) 에 역시 자세한 내용이 있다.
+
+## 2. 색인생성(Indexing)
+
+페이지가 크롤링되고 렌더링되면 다음 단계는 페이지에 있는 내용을 정확히 파악한 후 색인을 생성 할지 하지 않을지 결정할 때 도움을 주는 요소들을 확인하는 것이다.
+이 때 HTML 태그들과 텍스트 콘텐츠 및 핵심 콘텐츠 태그와 속성을 처리하고 분석한다.
+또한 이 과정에서 인터넷에 있는 다른 페이지들과의 중복되는지 아니면 표준(canonical) 페이지인지 판단한다.
+표준 페이지를 정하기 위해 Google은 먼저 인터넷에서 찾은 비슷한 콘텐트의 페이지를 그룹으로 묶는데 이를 클러스터링이라고 한다. 표준 페이지는 이 클러스터에서 하나로 선택이 된다.
+
+표준 페이지와 클러스터의 정보는 구글이 대규모 데이터베이스에 저장이 된다.이를 Google 색인이라고 한다. 다만 페이지의 콘텐츠 품질이 낮거나 Robots meta 규칙이 색인의 생성을 허용하지 않거나 웹사이트 자체가 색인 생성이 어렵도록 구성되어 있다면 색인 생성이 되지 않을 수 있다. SEO 를 위해서는 이런 [색인 생성이 쉬운 구조](https://developers.google.com/search/docs/crawling-indexing/javascript/javascript-seo-basics?hl=ko)의 웹사이트를 작성하는 것이 중요하다.
+
+## 3. 검색결과 게재(Serving)
+
+구글에 검색어를 입력하면 컴퓨터가 색인에서 검색어와 일치하는 페이지를 찾고 그 중에서 품질과 신뢰성 그리고 검색어와의 연관성이 가장 높다고 판단한 결과를 화면에 표시한다. 검색 결과 추출은 검색어를 해석하는 것으로 시작된다.
+
+검색어에서 불용어를 제거하고 비슷한 단어를 포함하도록 확장한 후 색인으로 보낸다.
+색인은 검색어를 바탕으로 순위를 매겨져야 하는 대량의 검색 결과를 반환한다.
+
+순위는 대개 검색 결과와 사용자의 관련성에 따라 달라진다. 이런 관련성을 결정하는 요소는 수백가지이며 그 중에서 가장 중요한 것은 페이지가 가지고 있는 컨텐츠이고 사용자의 위치, 언어, 디바이스의 유형등도 중요하다.
+
+여기서 페이지 콘텐츠의 품질이란 다양한 요소로 평가되는데 여기는 콘텐츠의 독창성 것들이 포함되는데, 검색엔진 최적화를 위해 지킬 수 있는 핵심사항은 [Google 검색 Essentials](https://developers.google.com/search/docs/essentials?hl=ko#key-best-practices)에 나와있다.
+
+
+# SSR, 서버 사이드 랜더링
+
+# 검색 결과에 영향을 미치는데 걸리는 시간
+
+참고자료:<br/>
+https://developers.google.com/search/docs/fundamentals/seo-starter-guide?hl=ko
+https://searchadvisor.naver.com/guide/seo-help
+https://developers.google.com/search/docs/fundamentals/how-search-works?hl=ko
+https://developers.google.com/search/docs/crawling-indexing/robots/intro?hl=ko
+https://developers.google.com/search/docs/crawling-indexing/javascript/javascript-seo-basics?hl=ko
+https://developers.google.com/search/docs/essentials?hl=ko
