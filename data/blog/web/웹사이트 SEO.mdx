@@ -32,13 +32,32 @@ summary: 검색엔진 최적화(SEO) 를 통해 웹사이트 노출시키기
 
 ### Googlebot
 
-### sitemap
+Googlebot 은 구글의 메인 크롤러로 웹 페이지를 가져오는 역할을 한다. Googlebot 은 알고리즘 프로세스를 사용하여 크롤링의 빈도와 가져올 페이지 수와 같은 값들을 결정하고, 대상이 대는 사이트에 과부하를 주지 않기 위해 빠른 크롤링을 수행하지 않는다.
 
-### robots.txt
+Googlebot 은 브라우저가 웹페이지를 렌더링하는 방식과 유사하게 자바스크립트를 실행한다. 이는 웹사이트가 클라이언트 사이드 렌더링 기술을 사용할 경우 자바스크립트들 사용해 페이지에 콘텐츠를 표시하기 때문에 렌더링하는 과정이 필요하다.
+
+**robots.txt**
+
+robots.txt 는 크롤러가 사이트에서 액세스 할 수 있는 URL을 검색엔진 크롤러에게 알려주기 위해 작성되는 파일로, 주로 요청으로 인해 사이트가 오버로드 되는 것을 방지하기 위해 사용된다. 다만 robots.txt는 크롤러의 동작을 제어하지는 못하기에 지침을 준수하는 크롤러가 아닐 경우 효과가 없을 수 있다.
+robots.txt 에 대한 [goole의 문서](https://developers.google.com/search/docs/crawling-indexing/robots/intro?hl=ko)를 확인하면 자세한 내용이 있다.
+
+**sitemaps**
+
+사이트맵(sitemaps)은 사이트 페이지의 URL을 모아둔 곳으로 검색엔진은 이 파일을 읽어 더 효율적으로 크롤링 하기에 사이트맵의 작성은 google 에 사이트를 노출시킬 때 큰 도움이 된다.
+sitemaps 에 대한 [google의 문서](https://developers.google.com/search/docs/crawling-indexing/sitemaps/overview?hl=ko) 에 역시 자세한 내용이 있다.
 
 ## 2. 색인생성(Indexing)
 
+페이지가 크롤링되고 렌더링되면 다음 단계는 페이지에 있는 내용을 정확히 파악한 후 색인을 생성 할지 하지 않을지 결정할 때 도움을 주는 요소들을 확인하는 것이다.
+이 때 HTML 태그들과 텍스트 콘텐츠 및 핵심 콘텐츠 태그와 속성을 처리하고 분석한다.
+또한 이 과정에서 인터넷에 있는 다른 페이지들과의 중복되는지 아니면 표준(canonical) 페이지인지 판단한다.
+표준 페이지를 정하기 위해 Google은 먼저 인터넷에서 찾은 비슷한 콘텐트의 페이지를 그룹으로 묶는데 이를 클러스터링이라고 한다. 표준 페이지는 이 클러스터에서 하나로 선택이 된다.
+
+표준 페이지와 클러스터의 정보는 구그르이 대규모 데이터베이스에 저장이 된다.이를 Google 색인이라고 한다. 다만 페이지의 콘텐츠 품질이 낮거나 Robots meta 규칙이 색인의 생성을 허용하지 않거나 웹사이트 자체가 색인 생성이 어렵도록 구성되어 있다면 색인 생성이 되지 않을 수 있다. SEO 를 위해서는 이런 [색인 생성이 쉬운 구조](https://developers.google.com/search/docs/crawling-indexing/javascript/javascript-seo-basics?hl=ko)의 웹사이트를 작성하는 것이 중요하다.
+
 ## 3. 검색결과 게재(Serving)
+
+
 
 # SSR, 서버 사이드 랜더링
 
@@ -48,3 +67,5 @@ summary: 검색엔진 최적화(SEO) 를 통해 웹사이트 노출시키기
 https://developers.google.com/search/docs/fundamentals/seo-starter-guide?hl=ko
 https://searchadvisor.naver.com/guide/seo-help
 https://developers.google.com/search/docs/fundamentals/how-search-works?hl=ko
+https://developers.google.com/search/docs/crawling-indexing/robots/intro?hl=ko
+https://developers.google.com/search/docs/crawling-indexing/javascript/javascript-seo-basics?hl=ko
