@@ -6,7 +6,7 @@ import type { Blog } from 'contentlayer/generated'
 import Link from '@/components/Link'
 import PageTitle from '@/components/PageTitle'
 import SectionContainer from '@/components/SectionContainer'
-import ScrollTopAndComment from '@/components/ScrollTopAndComment'
+import ScrollTop from '@/components/ScrollTop'
 
 interface LayoutProps {
   content: CoreContent<Blog>
@@ -22,7 +22,7 @@ export default function PostMinimal({ content, next, prev, children }: LayoutPro
 
   return (
     <SectionContainer>
-      <ScrollTopAndComment />
+      <ScrollTop />
       <article>
         <div>
           <div className="space-y-1 pb-10 text-center dark:border-gray-700">
