@@ -3,6 +3,8 @@ import { writeFileSync } from 'fs'
 import readingTime from 'reading-time'
 import GithubSlugger from 'github-slugger'
 import path from 'path'
+import { VFile } from 'vfile'
+import { Plugin } from 'unified'
 // Remark packages
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
@@ -134,12 +136,12 @@ export default makeSource({
   mdx: {
     cwd: process.cwd(),
     remarkPlugins: [
-      remarkExtractFrontmatter,
-      remarkGfm,
-      remarkCodeTitles,
-      remarkMath,
-      remarkImgToJsx,
-    ],
+      remarkExtractFrontmatter as Plugin<[], VFile>,
+      remarkGfm as Plugin<[], VFile>,
+      remarkCodeTitles as Plugin<[], VFile>,
+      remarkMath as Plugin<[], VFile>,
+      remarkImgToJsx as Plugin<[], VFile>,
+    ] as const,
     rehypePlugins: [
       rehypeSlug,
       rehypeAutolinkHeadings,
