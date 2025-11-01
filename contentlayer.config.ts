@@ -3,17 +3,14 @@ import { writeFileSync, readFileSync } from 'fs'
 import readingTime from 'reading-time'
 import GithubSlugger from 'github-slugger'
 import path from 'path'
-import { VFile } from 'vfile'
-import { Plugin } from 'unified'
+import { type Plugin } from 'unified'
 // Remark packages
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
-import {
-  remarkExtractFrontmatter,
-  remarkCodeTitles,
-  remarkImgToJsx,
-  extractTocHeadings,
-} from 'pliny/mdx-plugins/index.js'
+import { remarkExtractFrontmatter } from './lib/remark/extractFrontmatter'
+import { remarkCodeTitles } from './lib/remark/codeTitles'
+import { remarkImgToJsx } from './lib/remark/convertImages'
+import { extractTocHeadings, remarkTocHeadings } from './lib/remark/extractTocHeadings'
 // Rehype packages
 import rehypeSlug from 'rehype-slug'
 import rehypeAutolinkHeadings from 'rehype-autolink-headings'
@@ -136,11 +133,12 @@ export default makeSource({
   mdx: {
     cwd: process.cwd(),
     remarkPlugins: [
-      remarkExtractFrontmatter as Plugin<[], VFile>,
-      remarkGfm as Plugin<[], VFile>,
-      remarkCodeTitles as Plugin<[], VFile>,
-      remarkMath as Plugin<[], VFile>,
-      remarkImgToJsx as Plugin<[], VFile>,
+      remarkExtractFrontmatter,
+      remarkGfm,
+      remarkCodeTitles,
+      remarkMath,
+      remarkImgToJsx,
+      remarkTocHeadings,
     ] as const,
     rehypePlugins: [
       rehypeSlug,

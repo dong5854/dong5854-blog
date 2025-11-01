@@ -1,4 +1,4 @@
-/** @type {import("pliny/config").PlinyConfig } */
+// Site-wide metadata configuration
 const siteMetadata = {
   title: `dong5854's blog`,
   author: 'Dong Young Lee',
