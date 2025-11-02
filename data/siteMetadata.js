@@ -19,7 +19,6 @@ const siteMetadata = {
   linkedin: 'https://www.linkedin.com/in/%EB%8F%99%EC%98%81-%EC%9D%B4-a88b7b244/',
   locale: 'ko-KR',
   search: {
-    provider: 'kbar', // kbar or algolia
     kbarConfig: {
       searchDocumentsPath: 'search.json', // path to load documents to search
     },
