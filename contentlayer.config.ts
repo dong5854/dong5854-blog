@@ -1,7 +1,6 @@
 import { defineDocumentType, ComputedFields, makeSource } from 'contentlayer/source-files'
 import { writeFileSync, readFileSync } from 'fs'
 import readingTime from 'reading-time'
-import GithubSlugger from 'github-slugger'
 import path from 'path'
 import { type Plugin } from 'unified'
 // Remark packages
@@ -22,8 +21,6 @@ import siteMetadata from './data/siteMetadata'
 import { allCoreContent, sortPosts } from './lib/content'
 
 const root = process.cwd()
-const isProduction = process.env.NODE_ENV === 'production'
-
 const computedFields: ComputedFields = {
   readingTime: { type: 'json', resolve: (doc) => readingTime(doc.body.raw) },
   slug: {
@@ -39,26 +36,6 @@ const computedFields: ComputedFields = {
     resolve: (doc) => doc._raw.sourceFilePath,
   },
   toc: { type: 'string', resolve: (doc) => extractTocHeadings(doc.body.raw) },
-}
-
-/**
- * Count the occurrences of all tags across blog posts and write to json file
- */
-function createTagCount(allBlogs) {
-  const tagCount: Record<string, number> = {}
-  allBlogs.forEach((file) => {
-    if (file.tags && (!isProduction || file.draft !== true)) {
-      file.tags.forEach((tag) => {
-        const formattedTag = GithubSlugger.slug(tag)
-        if (formattedTag in tagCount) {
-          tagCount[formattedTag] += 1
-        } else {
-          tagCount[formattedTag] = 1
-        }
-      })
-    }
-  })
-  writeFileSync('./app/tag-data.json', JSON.stringify(tagCount))
 }
 
 function createSearchIndex(allBlogs) {
@@ -152,7 +129,6 @@ export default makeSource({
         'utf8'
       )
     )
-    createTagCount(allBlogs)
     createSearchIndex(allBlogs)
   },
 })
