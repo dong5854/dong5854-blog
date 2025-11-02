@@ -5,7 +5,6 @@ import path from 'path'
 import { type Plugin } from 'unified'
 // Remark packages
 import remarkGfm from 'remark-gfm'
-import remarkMath from 'remark-math'
 import { remarkExtractFrontmatter } from './lib/remark/extractFrontmatter'
 import { remarkCodeTitles } from './lib/remark/codeTitles'
 import { remarkImgToJsx } from './lib/remark/convertImages'
@@ -13,8 +12,6 @@ import { extractTocHeadings, remarkTocHeadings } from './lib/remark/extractTocHe
 // Rehype packages
 import rehypeSlug from 'rehype-slug'
 import rehypeAutolinkHeadings from 'rehype-autolink-headings'
-import rehypeKatex from 'rehype-katex'
-import rehypeCitation from 'rehype-citation'
 import rehypePrismPlus from 'rehype-prism-plus'
 import rehypePresetMinify from 'rehype-preset-minify'
 import siteMetadata from './data/siteMetadata'
@@ -109,15 +106,12 @@ export default makeSource({
       remarkExtractFrontmatter,
       remarkGfm,
       remarkCodeTitles,
-      remarkMath,
       remarkImgToJsx,
       remarkTocHeadings,
     ] as const,
     rehypePlugins: [
       rehypeSlug,
       rehypeAutolinkHeadings,
-      rehypeKatex,
-      [rehypeCitation, { path: path.join(root, 'data') }],
       [rehypePrismPlus, { defaultLanguage: 'js', ignoreMissing: true }],
       rehypePresetMinify,
     ],

@@ -1,5 +1,4 @@
 import 'css/prism.css'
-import 'katex/dist/katex.css'
 
 import { MDXLayoutRenderer } from '@/components/MDXRenderer'
 import { sortPosts, coreContent, allCoreContent } from '@/lib/content'
