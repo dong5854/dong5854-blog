@@ -1,32 +1,23 @@
 import { defineDocumentType, ComputedFields, makeSource } from 'contentlayer/source-files'
 import { writeFileSync, readFileSync } from 'fs'
 import readingTime from 'reading-time'
-import GithubSlugger from 'github-slugger'
 import path from 'path'
-import { VFile } from 'vfile'
-import { Plugin } from 'unified'
+import { type Plugin } from 'unified'
 // Remark packages
 import remarkGfm from 'remark-gfm'
-import remarkMath from 'remark-math'
-import {
-  remarkExtractFrontmatter,
-  remarkCodeTitles,
-  remarkImgToJsx,
-  extractTocHeadings,
-} from 'pliny/mdx-plugins/index.js'
+import { remarkExtractFrontmatter } from './lib/remark/extractFrontmatter'
+import { remarkCodeTitles } from './lib/remark/codeTitles'
+import { remarkImgToJsx } from './lib/remark/convertImages'
+import { extractTocHeadings, remarkTocHeadings } from './lib/remark/extractTocHeadings'
 // Rehype packages
 import rehypeSlug from 'rehype-slug'
 import rehypeAutolinkHeadings from 'rehype-autolink-headings'
-import rehypeKatex from 'rehype-katex'
-import rehypeCitation from 'rehype-citation'
 import rehypePrismPlus from 'rehype-prism-plus'
 import rehypePresetMinify from 'rehype-preset-minify'
 import siteMetadata from './data/siteMetadata'
-import { allCoreContent, sortPosts } from 'pliny/utils/contentlayer.js'
+import { allCoreContent, sortPosts } from './lib/content'
 
 const root = process.cwd()
-const isProduction = process.env.NODE_ENV === 'production'
-
 const computedFields: ComputedFields = {
   readingTime: { type: 'json', resolve: (doc) => readingTime(doc.body.raw) },
   slug: {
@@ -44,35 +35,11 @@ const computedFields: ComputedFields = {
   toc: { type: 'string', resolve: (doc) => extractTocHeadings(doc.body.raw) },
 }
 
-/**
- * Count the occurrences of all tags across blog posts and write to json file
- */
-function createTagCount(allBlogs) {
-  const tagCount: Record<string, number> = {}
-  allBlogs.forEach((file) => {
-    if (file.tags && (!isProduction || file.draft !== true)) {
-      file.tags.forEach((tag) => {
-        const formattedTag = GithubSlugger.slug(tag)
-        if (formattedTag in tagCount) {
-          tagCount[formattedTag] += 1
-        } else {
-          tagCount[formattedTag] = 1
-        }
-      })
-    }
-  })
-  writeFileSync('./app/tag-data.json', JSON.stringify(tagCount))
-}
-
 function createSearchIndex(allBlogs) {
-  if (
-    siteMetadata?.search?.provider === 'kbar' &&
-    siteMetadata.search.kbarConfig.searchDocumentsPath
-  ) {
-    writeFileSync(
-      `public/${siteMetadata.search.kbarConfig.searchDocumentsPath}`,
-      JSON.stringify(allCoreContent(sortPosts(allBlogs)))
-    )
+  const searchPath = siteMetadata?.search?.kbarConfig?.searchDocumentsPath
+  if (typeof searchPath === 'string' && searchPath.trim().length > 0) {
+    const normalizedPath = searchPath.startsWith('/') ? searchPath.slice(1) : searchPath
+    writeFileSync(`public/${normalizedPath}`, JSON.stringify(allCoreContent(sortPosts(allBlogs))))
     console.log('Local search index generated...')
   }
 }
@@ -136,17 +103,15 @@ export default makeSource({
   mdx: {
     cwd: process.cwd(),
     remarkPlugins: [
-      remarkExtractFrontmatter as Plugin<[], VFile>,
-      remarkGfm as Plugin<[], VFile>,
-      remarkCodeTitles as Plugin<[], VFile>,
-      remarkMath as Plugin<[], VFile>,
-      remarkImgToJsx as Plugin<[], VFile>,
+      remarkExtractFrontmatter,
+      remarkGfm,
+      remarkCodeTitles,
+      remarkImgToJsx,
+      remarkTocHeadings,
     ] as const,
     rehypePlugins: [
       rehypeSlug,
       rehypeAutolinkHeadings,
-      rehypeKatex,
-      [rehypeCitation, { path: path.join(root, 'data') }],
       [rehypePrismPlus, { defaultLanguage: 'js', ignoreMissing: true }],
       rehypePresetMinify,
     ],
@@ -158,7 +123,6 @@ export default makeSource({
         'utf8'
       )
     )
-    createTagCount(allBlogs)
     createSearchIndex(allBlogs)
   },
 })

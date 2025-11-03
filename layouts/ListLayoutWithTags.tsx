@@ -1,15 +1,16 @@
 /* eslint-disable jsx-a11y/anchor-is-valid */
 'use client'
 
+import { useMemo } from 'react'
 import { usePathname } from 'next/navigation'
 import { slug } from 'github-slugger'
-import { formatDate } from 'pliny/utils/formatDate'
-import { CoreContent } from 'pliny/utils/contentlayer'
+import { formatDate } from '@/lib/date'
+import type { CoreContent } from '@/lib/content'
 import type { Blog } from 'contentlayer/generated'
 import Link from '@/components/Link'
 import Tag from '@/components/Tag'
 import siteMetadata from '@/data/siteMetadata'
-import tagData from 'app/tag-data.json'
+import { getTagCounts, type TagCountMap } from '@/lib/tagCounts'
 
 interface PaginationProps {
   totalPages: number
@@ -20,6 +21,7 @@ interface ListLayoutProps {
   title: string
   initialDisplayPosts?: CoreContent<Blog>[]
   pagination?: PaginationProps
+  tagCounts?: TagCountMap
 }
 
 function Pagination({ totalPages, currentPage }: PaginationProps) {
@@ -67,11 +69,17 @@ export default function ListLayoutWithTags({
   title,
   initialDisplayPosts = [],
   pagination,
+  tagCounts: providedTagCounts,
 }: ListLayoutProps) {
   const pathname = usePathname()
-  const tagCounts = tagData as Record<string, number>
-  const tagKeys = Object.keys(tagCounts)
-  const sortedTags = tagKeys.sort((a, b) => tagCounts[b] - tagCounts[a])
+  const tagCounts = useMemo(
+    () => providedTagCounts ?? getTagCounts(posts),
+    [providedTagCounts, posts]
+  )
+  const sortedTags = useMemo(
+    () => Object.keys(tagCounts).sort((a, b) => tagCounts[b] - tagCounts[a]),
+    [tagCounts]
+  )
 
   const displayPosts = initialDisplayPosts.length > 0 ? initialDisplayPosts : posts
 
