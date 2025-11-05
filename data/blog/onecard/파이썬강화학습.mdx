@@ -1,0 +1,51 @@
+---
+title: '원카드 인공지능 강화학습'
+date: '2025-11-06'
+tags: ['python']
+draft: true
+summary: 원카드 프로젝트의 인공지능 개발
+---
+
+현재 원카드 게임의 로직은 전부 NEXT JS 프론트엔드 프로젝트에 개발되어 있음.
+
+1. 강화학습을 위해서 게임 엔진에 해당하는 프로젝트를 tsup 을 사용해 번들링
+
+```JS
+// onecard-client
+{
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		"incremental": false,
+		"noEmit": false,
+		"emitDeclarationOnly": true,
+		"declaration": true,
+		"declarationMap": false,
+		"outDir": "dist/engine"
+	},
+	"include": ["lib/engine/**/*", "lib/state/**/*", "lib/reducers/**/*", "types/**/*", "lib/utils/**/*"]
+}
+```
+
+```JS
+// onecard-client
+npx tsup ../onecard-client/lib/engine/gameEngine.ts \
+  --format cjs --dts --out-dir dist/engine \
+  --tsconfig tsconfig.engine.json
+```
+
+2. 브릿지 서버 의존성 설치 및 실행
+
+```sh
+# engine-bridge
+npm install express
+```
+
+```sh
+# engine-bridge
+node src/engine-server.js
+```
+
+3. 서버 동작 확인
+```sh
+curl http://localhost:4000/state
+```
