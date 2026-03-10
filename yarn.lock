@@ -2744,6 +2744,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@types/js-yaml@npm:^4.0.9":
+  version: 4.0.9
+  resolution: "@types/js-yaml@npm:4.0.9"
+  checksum: e5e5e49b5789a29fdb1f7d204f82de11cb9e8f6cb24ab064c616da5d6e1b3ccfbf95aa5d1498a9fbd3b9e745564e69b4a20b6c530b5a8bbb2d4eb830cda9bc69
+  languageName: node
+  linkType: hard
+
 "@types/json-schema@npm:^7.0.12":
   version: 7.0.15
   resolution: "@types/json-schema@npm:7.0.15"
@@ -2781,6 +2788,24 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@types/needle@npm:*":
+  version: 3.3.0
+  resolution: "@types/needle@npm:3.3.0"
+  dependencies:
+    "@types/node": "*"
+  checksum: 36ab10b2e3abdd111f906302a568a2e91fce7902e2a0b7cd687638eb3282648ae5c766a7ce8538a8b02cb2c498abaad2a9a706b6cfdb6ee548cbb05cba4516da
+  languageName: node
+  linkType: hard
+
+"@types/node@npm:*":
+  version: 25.4.0
+  resolution: "@types/node@npm:25.4.0"
+  dependencies:
+    undici-types: ~7.18.0
+  checksum: 793bf88ecb62ae3be0929c5348181680e95ae10bc94084a08097a6b87b7c511c77f8c191687bf6a75af4bd79c4fae727d1680d8f6d02f3f8c751c1baa7d8e507
+  languageName: node
+  linkType: hard
+
 "@types/node@npm:>=13.7.0":
   version: 22.15.3
   resolution: "@types/node@npm:22.15.3"
@@ -2801,6 +2826,16 @@ __metadata:
   version: 1.26.5
   resolution: "@types/prismjs@npm:1.26.5"
   checksum: d208b04ee9b6de6b2dc916439a81baa47e64ab3659a66d3d34bc3e42faccba9d4b26f590d76f97f7978d1dfaafa0861f81172b1e3c68696dd7a42d73aaaf5b7b
+  languageName: node
+  linkType: hard
+
+"@types/probe-image-size@npm:^7.2.5":
+  version: 7.2.5
+  resolution: "@types/probe-image-size@npm:7.2.5"
+  dependencies:
+    "@types/needle": "*"
+    "@types/node": "*"
+  checksum: 515c12e25b70e9d5be741888f5c01a37cf23fa5bea4a2fec8efef8a06ba49108dfd3d8d6bfa7b63ee0bf5b3859d81733a80d2b093be08459b1d1ec51404993bf
   languageName: node
   linkType: hard
 
@@ -10024,7 +10059,9 @@ __metadata:
     "@svgr/webpack": ^8.0.1
     "@tailwindcss/forms": ^0.5.4
     "@tailwindcss/typography": ^0.5.9
+    "@types/js-yaml": ^4.0.9
     "@types/mdx": ^2.0.5
+    "@types/probe-image-size": ^7.2.5
     "@types/react": ^18.2.14
     "@typescript-eslint/eslint-plugin": ^6.1.0
     "@typescript-eslint/parser": ^6.1.0
@@ -10362,6 +10399,13 @@ __metadata:
   version: 6.21.0
   resolution: "undici-types@npm:6.21.0"
   checksum: 46331c7d6016bf85b3e8f20c159d62f5ae471aba1eb3dc52fff35a0259d58dcc7d592d4cc4f00c5f9243fa738a11cfa48bd20203040d4a9e6bc25e807fab7ab3
+  languageName: node
+  linkType: hard
+
+"undici-types@npm:~7.18.0":
+  version: 7.18.2
+  resolution: "undici-types@npm:7.18.2"
+  checksum: 23da306c8366574adec305b06a8519ab5c7d09e3f5d16c1a98709a34fae17da09ec95198f30f86c00055e02efa8bfcc843e84e8aebeb9b8d6bb3e06afccae07a
   languageName: node
   linkType: hard
 

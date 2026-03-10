@@ -35,7 +35,7 @@ const computedFields: ComputedFields = {
   toc: { type: 'string', resolve: (doc) => extractTocHeadings(doc.body.raw) },
 }
 
-function createSearchIndex(allBlogs) {
+function createSearchIndex(allBlogs: Record<string, unknown>[]) {
   const searchPath = siteMetadata?.search?.kbarConfig?.searchDocumentsPath
   if (typeof searchPath === 'string' && searchPath.trim().length > 0) {
     const normalizedPath = searchPath.startsWith('/') ? searchPath.slice(1) : searchPath

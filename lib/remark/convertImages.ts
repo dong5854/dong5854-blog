@@ -26,7 +26,9 @@ export const remarkImgToJsx: Plugin<[], Root> = function () {
         return
       }
 
-      const { width, height } = probe(fs.readFileSync(absolutePath))
+      const result = probe(fs.readFileSync(absolutePath))
+      if (!result) return
+      const { width, height } = result
       const mdxNode = {
         type: 'mdxJsxFlowElement',
         name: 'Image',
