@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState } from 'react'
 import {
   KBarAnimator,
   KBarPortal,
@@ -39,16 +39,21 @@ interface SearchState {
   error?: string
 }
 
+let cachedActions: Action[] | null = null
+
 function useSearchActions(): SearchState {
   const router = useRouter()
-  const [state, setState] = useState<SearchState>({ actions: [], isLoading: true })
+  const [state, setState] = useState<SearchState>(() =>
+    cachedActions ? { actions: cachedActions, isLoading: false } : { actions: [], isLoading: true }
+  )
 
   useEffect(() => {
+    if (cachedActions) return
     let cancelled = false
 
     async function load() {
       try {
-        const res = await fetch(searchUrl, { cache: 'no-store' })
+        const res = await fetch(searchUrl)
         if (!res.ok) throw new Error(`검색 인덱스 로드 실패 (status: ${res.status})`)
 
         const docs: SearchDocument[] = await res.json()
@@ -67,6 +72,7 @@ function useSearchActions(): SearchState {
           }
         })
 
+        cachedActions = actions
         setState({ actions, isLoading: false })
       } catch (error) {
         console.error('Search index load failed', error)

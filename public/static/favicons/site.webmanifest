@@ -1,14 +1,28 @@
 {
-  "name": "",
-  "short_name": "",
+  "name": "dong5854's blog",
+  "short_name": "dong5854",
+  "description": "dong5854's 블로그",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "theme_color": "#000000",
+  "background_color": "#ffffff",
   "icons": [
     {
-      "src": "/android-icon-96x96.png",
-      "sizes": "96x96",
+      "src": "/static/favicons/favicon-32x32.png",
+      "sizes": "32x32",
       "type": "image/png"
+    },
+    {
+      "src": "/static/favicons/apple-icon-76x76.png",
+      "sizes": "76x76",
+      "type": "image/png"
+    },
+    {
+      "src": "/static/favicons/android-icon-96x96.png",
+      "sizes": "96x96",
+      "type": "image/png",
+      "purpose": "any maskable"
     }
-  ],
-  "theme_color": "#000000",
-  "background_color": "#000000",
-  "display": "standalone"
+  ]
 }

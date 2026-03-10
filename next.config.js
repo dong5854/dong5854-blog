@@ -1,15 +1,17 @@
 const { withContentlayer } = require('next-contentlayer')
 
 // You might need to insert additional domains in script-src if you are using external services
+const isDev = process.env.NODE_ENV === 'development'
 const ContentSecurityPolicy = `
   default-src 'self';
-  script-src 'self' 'unsafe-eval' 'unsafe-inline' analytics.umami.is;
+  script-src 'self' ${isDev ? "'unsafe-eval'" : ''} 'unsafe-inline' analytics.umami.is;
   style-src 'self' 'unsafe-inline';
   img-src * blob: data:;
   media-src *.s3.amazonaws.com;
-  connect-src *;
+  connect-src 'self' analytics.umami.is;
   font-src 'self';
-  frame-src 'self'
+  frame-src 'self';
+  worker-src 'self'
 `
 
 const securityHeaders = [
