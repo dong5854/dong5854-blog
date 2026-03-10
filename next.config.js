@@ -10,7 +10,8 @@ const ContentSecurityPolicy = `
   media-src *.s3.amazonaws.com;
   connect-src 'self' analytics.umami.is;
   font-src 'self';
-  frame-src 'self'
+  frame-src 'self';
+  worker-src 'self'
 `
 
 const securityHeaders = [
