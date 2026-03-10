@@ -3,7 +3,7 @@ import Tag from '@/components/Tag'
 import siteMetadata from '@/data/siteMetadata'
 import { formatDate } from '@/lib/date'
 import type { CoreContent } from '@/lib/content'
-import type { Blog } from 'contentlayer/generated'
+import type { Blog } from '@/lib/contentlayer'
 
 const MAX_DISPLAY = 5
 

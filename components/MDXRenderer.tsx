@@ -1,14 +1,22 @@
 'use client'
 
 import { useMemo } from 'react'
-import { useMDXComponent } from 'next-contentlayer/hooks'
+import { Fragment, jsx, jsxs } from 'react/jsx-runtime'
 import type { MDXComponents } from 'mdx/types'
 import { components as defaultComponents } from '@/components/MDXComponents'
+
+const jsxRuntime = { Fragment, jsx, jsxs }
+
+function useMDXComponent(code: string) {
+  return useMemo(() => {
+    const fn = new Function(code)
+    return fn(jsxRuntime).default
+  }, [code])
+}
 
 interface MDXLayoutRendererProps {
   code: string
   components?: MDXComponents
-  // allow additional props like toc, readingTime, etc.
   [key: string]: unknown
 }
 

@@ -1,4 +1,4 @@
-export type CoreContent<T> = Omit<T, 'body' | '_raw' | '_id'>
+export type CoreContent<T> = Omit<T, 'body' | 'raw'>
 
 const isProduction = process.env.NODE_ENV === 'production'
 
@@ -29,7 +29,7 @@ function omitKeys<T extends Record<string, unknown>, K extends keyof T>(
 }
 
 export function coreContent<T extends Record<string, unknown>>(document: T): CoreContent<T> {
-  return omitKeys(document, ['body', '_raw', '_id'] as const)
+  return omitKeys(document, ['body', 'raw'] as const)
 }
 
 export function allCoreContent<T extends { draft?: boolean }>(documents: T[]): CoreContent<T>[] {
