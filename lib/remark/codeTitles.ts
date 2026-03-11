@@ -4,7 +4,8 @@ import { visit } from 'unist-util-visit'
 
 export const remarkCodeTitles: Plugin<[], Root> = function () {
   return (tree) => {
-    visit(tree, 'code', (node, index, parent) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    visit(tree as any, 'code', (node: any, index: any, parent: any) => {
       if (index == null || !parent) return
 
       const codeNode = node as Code

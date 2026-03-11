@@ -16,9 +16,10 @@ const layouts = {
 export async function generateMetadata({
   params,
 }: {
-  params: { slug: string[] }
+  params: Promise<{ slug: string[] }>
 }): Promise<Metadata | undefined> {
-  const slug = decodeURI(params.slug.join('/'))
+  const { slug: slugParts } = await params
+  const slug = decodeURI(slugParts.join('/'))
   const post = allBlogs.find((p) => p.slug === slug)
   const authorList = post?.authors || ['default']
   if (!post) {
@@ -75,8 +76,9 @@ export const generateStaticParams = async () => {
   return paths
 }
 
-export default async function Page({ params }: { params: { slug: string[] } }) {
-  const slug = decodeURI(params.slug.join('/'))
+export default async function Page({ params }: { params: Promise<{ slug: string[] }> }) {
+  const { slug: slugParts } = await params
+  const slug = decodeURI(slugParts.join('/'))
   // Filter out drafts in production
   const sortedCoreContents = allCoreContent(sortPosts(allBlogs))
   const postIndex = sortedCoreContents.findIndex((p) => p.slug === slug)
@@ -97,7 +99,7 @@ export default async function Page({ params }: { params: { slug: string[] } }) {
     })
     .filter((a): a is NonNullable<typeof a> => a !== null)
   const mainContent = coreContent(post)
-  const jsonLd = post.structuredData
+  const jsonLd: Record<string, unknown> = { ...post.structuredData }
   jsonLd['author'] = authorDetails.map((author) => {
     return {
       '@type': 'Person',
@@ -115,7 +117,7 @@ export default async function Page({ params }: { params: { slug: string[] } }) {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
       <Layout content={mainContent} authorDetails={authorDetails} next={next} prev={prev}>
-        <MDXLayoutRenderer code={post.body.code} toc={post.toc} />
+        <MDXLayoutRenderer code={post.body} toc={post.toc} />
       </Layout>
     </>
   )

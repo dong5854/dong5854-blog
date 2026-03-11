@@ -1,13 +1,59 @@
 import { readFileSync } from 'fs'
 import path from 'path'
-import type { Blog, Authors } from 'contentlayer/generated'
 
-function readGeneratedJson<T>(relativePath: string): T {
-  const filePath = path.join(process.cwd(), '.contentlayer', 'generated', relativePath)
+type Blog = {
+  title: string
+  date: string
+  tags: string[]
+  draft: boolean
+  summary?: string
+  images?: string | string[]
+  authors?: string[]
+  layout?: string
+  bibliography?: string
+  canonicalUrl?: string
+  body: string
+  raw: string
+  toc: Array<{ title: string; url: string; depth: number }>
+  slug: string
+  path: string
+  filePath: string
+  readingTime: { readingTime: number; wordCount: number }
+  lastmod?: string
+  structuredData: {
+    '@context': string
+    '@type': string
+    headline: string
+    datePublished: string
+    dateModified: string
+    description?: string
+    image: string
+    url: string
+  }
+}
+
+type Authors = {
+  name: string
+  avatar?: string
+  occupation?: string
+  company?: string
+  email?: string
+  twitter?: string
+  linkedin?: string
+  github?: string
+  layout?: string
+  body: string
+  slug: string
+  path: string
+  filePath: string
+}
+
+function readVeliteJson<T>(filename: string): T {
+  const filePath = path.join(process.cwd(), '.velite', filename)
   return JSON.parse(readFileSync(filePath, 'utf8')) as T
 }
 
-export const allBlogs = readGeneratedJson<Blog[]>('Blog/_index.json')
-export const allAuthors = readGeneratedJson<Authors[]>('Authors/_index.json')
+export const allBlogs = readVeliteJson<Blog[]>('blogs.json')
+export const allAuthors = readVeliteJson<Authors[]>('authors.json')
 
 export type { Blog, Authors }

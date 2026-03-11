@@ -5,7 +5,7 @@ import SectionContainer from '@/components/SectionContainer'
 import Footer from '@/components/Footer'
 import siteMetadata from '@/data/siteMetadata'
 import { ThemeProviders } from './theme-providers'
-import { Metadata } from 'next'
+import { Metadata, Viewport } from 'next'
 import { SearchProvider } from '@/components/SearchProvider'
 import ServiceWorkerRegistrar from '@/components/ServiceWorkerRegistrar'
 
@@ -61,11 +61,14 @@ export const metadata: Metadata = {
     other: [{ rel: 'mask-icon', url: '/static/favicons/safari-pinned-tab.svg', color: '#5bbad5' }],
     shortcut: ['/static/favicons/favicon.ico'],
   },
+  manifest: '/static/favicons/site.webmanifest',
+}
+
+export const viewport: Viewport = {
   themeColor: [
     { media: '(prefers-color-scheme: light)', color: '#ffffff' },
     { media: '(prefers-color-scheme: dark)', color: '#000000' },
   ],
-  manifest: '/static/favicons/site.webmanifest',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

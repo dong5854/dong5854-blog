@@ -13,7 +13,8 @@ type MutableImage = Image & {
 
 export const remarkImgToJsx: Plugin<[], Root> = function () {
   return (tree) => {
-    visit(tree, 'paragraph', (node) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    visit(tree as any, 'paragraph', (node: any) => {
       const paragraph = node as Paragraph
       const imageIndex = paragraph.children.findIndex((child) => child.type === 'image')
       if (imageIndex === -1) {

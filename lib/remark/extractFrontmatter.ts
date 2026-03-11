@@ -7,7 +7,8 @@ type UnifiedPlugin = Plugin<[], Root>
 
 const remarkExtractFrontmatterPlugin: UnifiedPlugin = function () {
   return (tree, file) => {
-    visit(tree, 'yaml', (node, index, parent) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    visit(tree as any, 'yaml', (node: any, index: any, parent: any) => {
       if (index == null || !parent) return
 
       try {
