@@ -84,6 +84,9 @@ const authors = defineCollection({
 
 export default defineConfig({
   root: 'data',
+  output: {
+    assets: 'public/static/velite',
+  },
   collections: { blogs, authors },
   mdx: {
     remarkPlugins: [remarkGfm, remarkCodeTitles, remarkImgToJsx],
