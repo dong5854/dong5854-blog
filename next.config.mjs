@@ -21,10 +21,9 @@ if (!process.env.VELITE_STARTED && (isDev || isBuild)) {
   }
 }
 
-const isDevEnv = process.env.NODE_ENV === 'development'
 const ContentSecurityPolicy = `
   default-src 'self';
-  script-src 'self' ${isDevEnv ? "'unsafe-eval'" : ''} 'unsafe-inline' static.cloudflareinsights.com;
+  script-src 'self' 'unsafe-eval' 'unsafe-inline' static.cloudflareinsights.com;
   style-src 'self' 'unsafe-inline';
   img-src * blob: data:;
   media-src *.s3.amazonaws.com;
