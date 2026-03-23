@@ -16,7 +16,6 @@ export const remarkTocHeadings: Plugin<[], Root> = function () {
     const slugger = new GithubSlugger()
     const toc: TocItem[] = []
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     visit(tree as any, 'heading', (node: any) => {
       const heading = node as Heading
       const text = toString(heading).trim()
