@@ -16,8 +16,8 @@ export const remarkTocHeadings: Plugin<[], Root> = function () {
     const slugger = new GithubSlugger()
     const toc: TocItem[] = []
 
-    visit(tree as any, 'heading', (node: any) => {
-      const heading = node as Heading
+    visit(tree as unknown as Parameters<typeof visit>[0], 'heading', (node) => {
+      const heading = node as unknown as Heading
       const text = toString(heading).trim()
       if (!text) return
 
