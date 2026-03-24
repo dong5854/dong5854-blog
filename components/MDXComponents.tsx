@@ -7,12 +7,10 @@ import type { MDXComponents } from 'mdx/types'
 import Image from './Image'
 import CustomLink from './Link'
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 export const components: MDXComponents = {
   Image,
   TOCInline,
-  a: CustomLink as any,
-  pre: Pre as any,
+  a: CustomLink as MDXComponents['a'],
+  pre: Pre as MDXComponents['pre'],
   BlogNewsletterForm,
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */

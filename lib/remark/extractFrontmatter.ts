@@ -1,4 +1,4 @@
-import type { Root } from 'mdast'
+import type { Parent, Root } from 'mdast'
 import type { Plugin } from 'unified'
 import { visit } from 'unist-util-visit'
 import yaml from 'js-yaml'
@@ -7,18 +7,17 @@ type UnifiedPlugin = Plugin<[], Root>
 
 const remarkExtractFrontmatterPlugin: UnifiedPlugin = function () {
   return (tree, file) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    visit(tree as any, 'yaml', (node: any, index: any, parent: any) => {
+    visit(tree as unknown as Parameters<typeof visit>[0], 'yaml', (node, index, parent) => {
       if (index == null || !parent) return
 
       try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ;(file.data as Record<string, unknown>).frontmatter = yaml.load((node as any).value) ?? {}
+        ;(file.data as Record<string, unknown>).frontmatter =
+          yaml.load((node as unknown as { value: string }).value) ?? {}
       } catch (error) {
         console.warn('Failed to parse frontmatter', error)
       }
 
-      parent.children.splice(index, 1)
+      ;(parent as unknown as Parent).children.splice(index, 1)
     })
   }
 }

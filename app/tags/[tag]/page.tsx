@@ -7,7 +7,11 @@ import { getTagCounts } from '@/lib/tagCounts'
 import { genPageMetadata } from 'app/seo'
 import { Metadata } from 'next'
 
-export async function generateMetadata({ params }: { params: Promise<{ tag: string }> }): Promise<Metadata> {
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ tag: string }>
+}): Promise<Metadata> {
   const { tag: rawTag } = await params
   const tag = decodeURI(rawTag)
   return genPageMetadata({

@@ -27,5 +27,7 @@ export function MDXLayoutRenderer({ code, components, ...rest }: MDXLayoutRender
     [components]
   )
 
+  // useMDXComponent는 useMemo로 메모이제이션되어 매 렌더마다 재생성되지 않음
+  // eslint-disable-next-line react-hooks/static-components
   return <Component components={allComponents} {...rest} />
 }

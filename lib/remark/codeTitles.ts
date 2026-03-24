@@ -4,11 +4,10 @@ import { visit } from 'unist-util-visit'
 
 export const remarkCodeTitles: Plugin<[], Root> = function () {
   return (tree) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    visit(tree as any, 'code', (node: any, index: any, parent: any) => {
+    visit(tree as unknown as Parameters<typeof visit>[0], 'code', (node, index, parent) => {
       if (index == null || !parent) return
 
-      const codeNode = node as Code
+      const codeNode = node as unknown as Code
       const info = codeNode.lang ?? ''
       if (!info.includes(':')) return
 
