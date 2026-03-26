@@ -1,0 +1,188 @@
+---
+title: "Cloudflare DDNS부터 k8s Gateway API까지: 홈서버 외부 접속 완전 정복기"
+date: "2026-02-08"
+tags: ["HomeLab", "Kubernetes", "Cloudflare", "ArgoCD", "Gateway API"]
+description: "유동 IP 환경의 홈서버에서 Cloudflare DDNS를 설정하고, Kubernetes Gateway API와 Cert-Manager를 이용해 Wildcard 인증서로 ArgoCD에 안전하게 접속하는 과정을 정리합니다."
+---
+
+홈서버를 운영하다 보면 가장 먼저 마주치는 벽이 **외부 접속**과 **보안(SSL)**입니다.
+이번 글에서는 유동 IP 환경에서 도메인을 연결하고, 최신 Kubernetes 기술인 **Gateway API**를 활용해 HTTPS를 적용하는 전 과정을 기록합니다.
+
+## 1. Cloudflare DDNS 설정 (ddclient)
+
+집의 공인 IP는 언제든 바뀔 수 있기 때문에 **DDNS(Dynamic DNS)** 설정이 필수입니다. Docker 컨테이너를 쓰는 방법도 있지만, 리눅스 표준 패키지인 `ddclient`가 가장 안정적이었습니다.
+
+### 설치 및 설정
+
+sudo apt update
+sudo apt install ddclient
+
+`/etc/ddclient.conf` 파일을 수정합니다.
+
+> **주의:** API 토큰은 Cloudflare 대시보드 > User Profile > API Tokens에서 **Edit zone DNS** 템플릿으로 생성해야 합니다.
+
+# /etc/ddclient.conf
+# 기본 설정
+daemon=300              # 5분마다 체크
+syslog=yes
+pid=/var/run/ddclient.pid
+ssl=yes
+
+# IP 확인 방법
+use=web, web=https://cloudflare.com/cdn-cgi/trace
+
+# Cloudflare 설정
+protocol=cloudflare
+zone=movingzero.org          # 구매한 도메인
+login=token                  # 토큰 방식 사용 명시
+password=YOUR_API_TOKEN      # 발급받은 API 토큰
+argocd.movingzero.org, homeserver.movingzero.org  # 업데이트할 서브도메인들
+
+
+### 트러블슈팅: 업데이트가 안 될 때
+
+설정을 바꿨는데도 로그에 `WARNING: Wait at least 5 minutes...`만 뜨고 업데이트가 안 된다면 캐시 문제입니다. 과감하게 지워줍니다.
+
+# 캐시 삭제 후 강제 업데이트 실행
+sudo rm -f /var/cache/ddclient/ddclient.cache
+sudo ddclient -daemon=0 -debug -verbose -noquiet
+
+
+---
+
+## 2. Cert-Manager와 Wildcard 인증서 발급
+
+서브도메인이 늘어날 때마다 인증서를 따로 만들기 귀찮으므로, `*.movingzero.org`를 커버하는 **Wildcard 인증서**를 발급받습니다.
+
+### ClusterIssuer 설정 (Cloudflare DNS-01)
+
+먼저 Cloudflare API 토큰을 Secret으로 등록한 뒤, `ClusterIssuer`를 생성합니다.
+
+# cluster-issuer.yaml
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: user@example.com
+    privateKeySecretRef:
+      name: letsencrypt-prod
+    solvers:
+    - dns01:
+        cloudflare:
+          apiTokenSecretRef:
+            name: cloudflare-api-token-secret
+            key: api-token
+
+
+### Wildcard 인증서 요청
+
+`nginx-gateway` 네임스페이스에 인증서를 생성합니다. 최신 버전에 맞춰 `rotationPolicy: Always`를 추가했습니다.
+
+# wildcard-cert.yaml
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: movingzero-wildcard-cert
+  namespace: nginx-gateway
+spec:
+  secretName: movingzero-wildcard-secret
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  privateKey:
+    rotationPolicy: Always  # 보안 권장 사항
+  dnsNames:
+  - "*.movingzero.org"
+
+
+---
+
+## 3. Gateway API v1 설정 (SSL Termination)
+
+Ingress 대신 더 강력한 **Gateway API**를 사용합니다.
+초기 설정 시 `v1alpha2` 버전 사용과 `allowedRoutes` 위치 때문에 에러가 많았는데, **v1 표준 문법**으로 정리된 최종 설정은 다음과 같습니다.
+
+### Gateway 설정 (HTTPS 수신 및 복호화)
+
+Gateway가 암호를 풀고(Terminate), 내부 파드로는 HTTP로 전달하는 구조입니다.
+
+# gateway.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: edge-gw
+  namespace: nginx-gateway
+spec:
+  gatewayClassName: nginx
+  listeners:
+  - name: https
+    protocol: HTTPS
+    port: 443
+    hostname: "*.movingzero.org"
+    tls:
+      mode: Terminate
+      certificateRefs:
+      - name: movingzero-wildcard-secret
+    # [중요] v1에서는 allowedRoutes가 tls 블록 밖으로 나왔습니다.
+    allowedRoutes:
+      namespaces:
+        from: All
+
+
+### HTTPRoute 설정 (ArgoCD 연결)
+
+# argocd-route.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: argocd-http
+  namespace: argocd
+spec:
+  parentRefs:
+  - name: edge-gw
+    namespace: nginx-gateway
+  hostnames:
+  - argocd.movingzero.org
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: argocd-server
+      port: 80
+
+
+---
+
+## 4. ArgoCD 무한 리다이렉트 해결
+
+ArgoCD는 기본적으로 스스로 HTTPS를 강제하기 때문에, Gateway에서 SSL을 풀고 HTTP로 보내면 **"어? 왜 HTTP지? HTTPS로 가!"** 라며 무한 루프에 빠집니다.
+
+이를 해결하기 위해 ArgoCD를 **Insecure 모드**로 변경해야 합니다.
+
+kubectl edit configmap argocd-cmd-params-cm -n argocd
+
+# data 섹션에 추가
+data:
+  server.insecure: "true"
+
+
+설정 후 재시작하면 접속이 완벽하게 됩니다.
+
+kubectl rollout restart deploy argocd-server -n argocd
+
+
+---
+
+## 마치며
+
+이제 `*.movingzero.org` 도메인으로 어떤 서비스를 띄우든:
+1. **Cloudflare DDNS**가 내 집 IP를 찾아주고,
+2. **Wildcard 인증서**가 자동으로 자물쇠를 채워주며,
+3. **Gateway API**가 트래픽을 깔끔하게 라우팅해줍니다.
+
+홈서버 인프라의 기본기를 튼튼하게 다진 것 같아 뿌듯하네요! 🚀
