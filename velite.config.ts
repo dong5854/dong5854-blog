@@ -5,6 +5,8 @@ import { remarkImgToJsx } from './lib/remark/convertImages'
 import rehypeSlug from 'rehype-slug'
 import rehypeAutolinkHeadings from 'rehype-autolink-headings'
 import rehypePrismPlus from 'rehype-prism-plus'
+import remarkMath from 'remark-math'
+import rehypeKatex from 'rehype-katex'
 const siteUrl = 'https://dong5854-blog-lac-one.vercel.app/'
 const socialBanner = '/static/images/twitter-card.png'
 
@@ -89,10 +91,11 @@ export default defineConfig({
   },
   collections: { blogs, authors },
   mdx: {
-    remarkPlugins: [remarkGfm, remarkCodeTitles, remarkImgToJsx],
+    remarkPlugins: [remarkMath, remarkGfm, remarkCodeTitles, remarkImgToJsx],
     rehypePlugins: [
       rehypeSlug,
       rehypeAutolinkHeadings,
+      rehypeKatex,
       [rehypePrismPlus as any, { defaultLanguage: 'js', ignoreMissing: true }],
     ],
   },
