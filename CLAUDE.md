@@ -47,3 +47,19 @@ Layout components in `layouts/` are selected per-post via the `layout` frontmatt
 - Prettier: no semicolons, single quotes, 100 char width, tailwindcss plugin
 - Package manager: **Yarn**
 - Git hooks: Husky + lint-staged (auto-lint on commit)
+
+### Do NOT
+
+- `.velite/` 디렉토리의 파일(`blogs.json`, `authors.json`, `index.js`, `index.d.ts`)을 직접 수정하지 않기 — Velite가 빌드 시 자동 생성
+- `public/search.json`을 수동으로 편집하지 않기 — `next.config.mjs`가 빌드/dev 시작 시 `.velite/blogs.json`에서 자동 생성
+- `public/sitemap.xml`, `public/feed.xml` 등 XML 파일을 수동으로 편집하지 않기 — 빌드 시 자동 생성
+- `next-env.d.ts`를 수동으로 편집하지 않기 — Next.js가 자동 관리
+- `yarn.lock`을 직접 수정하지 않기 — `yarn add`/`yarn remove` 명령으로만 변경
+- `.next/` 디렉토리의 빌드 결과물을 수정하지 않기
+- `public/static/velite/` 하위 파일을 수동으로 수정하지 않기 — Velite가 자동 생성하는 asset 디렉토리
+- 패키지 설치 시 `npm` 대신 반드시 `yarn` 사용
+- `next.config.mjs`의 CSP에서 `unsafe-eval`, `unsafe-inline`을 제거하지 않기:
+  - `unsafe-eval`: `MDXRenderer.tsx`에서 `new Function(code)`로 Velite 컴파일된 MDX를 실행하는 데 필수
+  - `unsafe-inline` (style-src): Next.js 인라인 스타일 주입 및 `next-themes` 다크모드 초기화에 필수
+  - `unsafe-inline` (script-src): Cloudflare Web Analytics 연동에 필요
+  - Cloudflare(`static.cloudflareinsights.com`, `cloudflareinsights.com`) 도메인 허용은 Cloudflare Web Analytics용
