@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 370" width="520" height="370">
+  <rect width="520" height="370" fill="#fff"/>
+
+  <!-- Grid lines -->
+  <g stroke="#e5e7eb" stroke-width="0.5">
+    <!-- Vertical: x = -6, -4, -2, 0, 2, 4, 6 -->
+    <line x1="50" y1="50" x2="50" y2="300"/>
+    <line x1="120" y1="50" x2="120" y2="300"/>
+    <line x1="190" y1="50" x2="190" y2="300"/>
+    <line x1="260" y1="50" x2="260" y2="300"/>
+    <line x1="330" y1="50" x2="330" y2="300"/>
+    <line x1="400" y1="50" x2="400" y2="300"/>
+    <line x1="470" y1="50" x2="470" y2="300"/>
+    <!-- Horizontal: y = 0, 0.25, 0.5, 0.75, 1.0 -->
+    <line x1="50" y1="300" x2="470" y2="300"/>
+    <line x1="50" y1="237.5" x2="470" y2="237.5"/>
+    <line x1="50" y1="175" x2="470" y2="175"/>
+    <line x1="50" y1="112.5" x2="470" y2="112.5"/>
+    <line x1="50" y1="50" x2="470" y2="50"/>
+  </g>
+
+  <!-- Asymptotes y=0, y=1 -->
+  <line x1="50" y1="300" x2="470" y2="300" stroke="#9ca3af" stroke-width="0.8" stroke-dasharray="5,4"/>
+  <line x1="50" y1="50" x2="470" y2="50" stroke="#9ca3af" stroke-width="0.8" stroke-dasharray="5,4"/>
+
+  <!-- Axes -->
+  <line x1="40" y1="175" x2="480" y2="175" stroke="#374151" stroke-width="1.2"/>
+  <line x1="260" y1="40" x2="260" y2="310" stroke="#374151" stroke-width="1.2"/>
+  <polygon points="480,175 473,171 473,179" fill="#374151"/>
+  <polygon points="260,40 256,47 264,47" fill="#374151"/>
+
+  <!-- Sigmoid curve σ(x) = 1/(1+e^(-x)), x∈[-6,6] -->
+  <!-- px = 35x + 260, py = 300 - 250·σ(x) -->
+  <polyline
+    fill="none" stroke="#2563eb" stroke-width="2.5"
+    stroke-linecap="round" stroke-linejoin="round"
+    points="
+      50,299.4   67.5,299.0  85,298.3  102.5,297.3
+      120,295.5  137.5,292.7 155,288.1 172.5,281.0
+      190,270.2  207.5,254.4 225,232.8 242.5,205.6
+      260,175.0
+      277.5,144.4 295,117.2 312.5,95.6 330,79.8
+      347.5,69.0  365,61.9  382.5,57.3 400,54.5
+      417.5,52.7  435,51.7  452.5,51.0 470,50.6"/>
+
+  <!-- Point at (0, 0.5) -->
+  <circle cx="260" cy="175" r="3.5" fill="#2563eb"/>
+
+  <!-- X-axis labels -->
+  <g font-family="sans-serif" font-size="11" fill="#6b7280" text-anchor="middle">
+    <text x="50" y="192">-6</text>
+    <text x="120" y="192">-4</text>
+    <text x="190" y="192">-2</text>
+    <text x="330" y="192">2</text>
+    <text x="400" y="192">4</text>
+    <text x="470" y="192">6</text>
+  </g>
+  <text x="490" y="179" font-family="serif" font-size="13" font-style="italic" fill="#374151">x</text>
+
+  <!-- Y-axis labels -->
+  <g font-family="sans-serif" font-size="11" fill="#6b7280" text-anchor="end">
+    <text x="248" y="304">0</text>
+    <text x="248" y="241">0.25</text>
+    <text x="248" y="179">0.5</text>
+    <text x="248" y="116">0.75</text>
+    <text x="248" y="54">1.0</text>
+  </g>
+
+  <!-- Curve label -->
+  <text x="310" y="108" font-family="serif" font-size="13" font-style="italic" fill="#2563eb">σ(x)</text>
+
+  <!-- Formula -->
+  <text x="260" y="350" text-anchor="middle" font-family="sans-serif" font-size="14" font-weight="bold" fill="#374151">σ(x) = 1 / (1 + e⁻ˣ)</text>
+</svg>
