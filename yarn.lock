@@ -4423,6 +4423,59 @@ __metadata:
   languageName: node
   linkType: hard
 
+"dong5854-blog@workspace:.":
+  version: 0.0.0-use.local
+  resolution: "dong5854-blog@workspace:."
+  dependencies:
+    "@svgr/webpack": ^8.1.0
+    "@tailwindcss/forms": ^0.5.11
+    "@tailwindcss/typography": ^0.5.19
+    "@types/js-yaml": ^4.0.9
+    "@types/mdx": ^2.0.13
+    "@types/probe-image-size": ^7.2.5
+    "@types/react": ^19.2.14
+    "@types/react-dom": ^19.2.3
+    autoprefixer: ^10.4.27
+    concurrently: ^9.2.1
+    cross-env: ^7.0.3
+    esbuild: 0.18.11
+    eslint: ^9.28.0
+    eslint-config-next: ^16.2.1
+    eslint-config-prettier: ^10.1.8
+    eslint-plugin-prettier: ^5.5.5
+    github-slugger: ^1.4.0
+    gray-matter: ^4.0.3
+    husky: ^9.1.7
+    image-size: 1.0.0
+    js-yaml: ^4.1.1
+    kbar: ^0.1.0-beta.48
+    lint-staged: ^16.4.0
+    mdast-util-to-string: ^3.2.0
+    next: ^16.2.1
+    next-themes: ^0.4.6
+    postcss: ^8.5.8
+    prettier: ^3.8.1
+    prettier-plugin-tailwindcss: ^0.7.2
+    probe-image-size: ^7.2.3
+    react: ^19.2.4
+    react-dom: ^19.2.4
+    reading-time: 1.5.0
+    rehype-autolink-headings: ^7.1.0
+    rehype-katex: ^7.0.1
+    rehype-preset-minify: ^7.0.1
+    rehype-prism-plus: ^2.0.2
+    rehype-slug: ^6.0.0
+    remark: ^15.0.1
+    remark-gfm: ^4.0.1
+    remark-math: ^6.0.0
+    tailwindcss: ^3.4.17
+    typescript: ^5.9.3
+    typescript-eslint: ^8.57.1
+    unist-util-visit: ^4.1.0
+    velite: ^0.3.1
+  languageName: unknown
+  linkType: soft
+
 "dot-case@npm:^3.0.4":
   version: 3.0.4
   resolution: "dot-case@npm:3.0.4"
@@ -10179,59 +10232,6 @@ __metadata:
   checksum: a53fb563d01ba8912a111b883fc3c701e267896ff8273e7aba9001f5f74711e125888f4039e93060795cd416122cf492ae419eb10a6a3e3b00e830917669d2cf
   languageName: node
   linkType: hard
-
-"tailwind-nextjs-starter-blog@workspace:.":
-  version: 0.0.0-use.local
-  resolution: "tailwind-nextjs-starter-blog@workspace:."
-  dependencies:
-    "@svgr/webpack": ^8.1.0
-    "@tailwindcss/forms": ^0.5.11
-    "@tailwindcss/typography": ^0.5.19
-    "@types/js-yaml": ^4.0.9
-    "@types/mdx": ^2.0.13
-    "@types/probe-image-size": ^7.2.5
-    "@types/react": ^19.2.14
-    "@types/react-dom": ^19.2.3
-    autoprefixer: ^10.4.27
-    concurrently: ^9.2.1
-    cross-env: ^7.0.3
-    esbuild: 0.18.11
-    eslint: ^9.28.0
-    eslint-config-next: ^16.2.1
-    eslint-config-prettier: ^10.1.8
-    eslint-plugin-prettier: ^5.5.5
-    github-slugger: ^1.4.0
-    gray-matter: ^4.0.3
-    husky: ^9.1.7
-    image-size: 1.0.0
-    js-yaml: ^4.1.1
-    kbar: ^0.1.0-beta.48
-    lint-staged: ^16.4.0
-    mdast-util-to-string: ^3.2.0
-    next: ^16.2.1
-    next-themes: ^0.4.6
-    postcss: ^8.5.8
-    prettier: ^3.8.1
-    prettier-plugin-tailwindcss: ^0.7.2
-    probe-image-size: ^7.2.3
-    react: ^19.2.4
-    react-dom: ^19.2.4
-    reading-time: 1.5.0
-    rehype-autolink-headings: ^7.1.0
-    rehype-katex: ^7.0.1
-    rehype-preset-minify: ^7.0.1
-    rehype-prism-plus: ^2.0.2
-    rehype-slug: ^6.0.0
-    remark: ^15.0.1
-    remark-gfm: ^4.0.1
-    remark-math: ^6.0.0
-    tailwindcss: ^3.4.17
-    typescript: ^5.9.3
-    typescript-eslint: ^8.57.1
-    unist-util-visit: ^4.1.0
-    velite: ^0.3.1
-  languageName: unknown
-  linkType: soft
 
 "tailwindcss@npm:^3.4.17":
   version: 3.4.19
