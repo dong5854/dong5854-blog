@@ -49,3 +49,6 @@ yarn-error.log*
 
 # Velite
 .velite
+
+# TypeScript build cache
+tsconfig.tsbuildinfo
