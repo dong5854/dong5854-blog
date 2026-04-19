@@ -1,7 +1,9 @@
 ---
-title: "홈서버 네트워크 완전 정복: Cloudflare DDNS부터 Gateway API까지"
-date: "2026-02-08"
-description: "유동 IP 환경의 한계를 극복하는 DDNS 원리, Kubernetes Gateway API의 구조, 그리고 ArgoCD의 SSL Termination 트러블슈팅까지 깊이 있게 다룹니다."
+title: '홈서버 네트워크 완전 정복: Cloudflare DDNS부터 Gateway API까지'
+date: '2026-02-08'
+draft: true
+tags: ['homeserver', 'network']
+description: '유동 IP 환경의 한계를 극복하는 DDNS 원리, Kubernetes Gateway API의 구조, 그리고 ArgoCD의 SSL Termination 트러블슈팅까지 깊이 있게 다룹니다.'
 ---
 
 홈서버를 구축하며 가장 까다로운 부분은 '외부에서 어떻게 안전하게 내 서버로 들어오게 할 것인가'입니다.
@@ -10,15 +12,18 @@ description: "유동 IP 환경의 한계를 극복하는 DDNS 원리, Kubernetes
 ## 1. 연결의 시작: Cloudflare DDNS와 ddclient
 
 ### 1.1 원리: 왜 DDNS가 필요한가?
+
 일반적인 가정용 인터넷은 ISP(통신사)가 할당하는 **유동 IP (Dynamic IP)**를 사용합니다. 컴퓨터를 껐다 켜거나 공유기가 재부팅되면 우리 집주소(IP)가 바뀌어 버립니다.
 도메인(예: `movingzero.org`)은 특정 IP를 가리키는 전화번호부 같은 것인데, 전화번호(IP)가 계속 바뀌면 전화를 걸 수 없습니다.
 
 **DDNS (Dynamic DNS)**는 이 문제를 해결해줍니다.
+
 1. 내 서버에 설치된 에이전트(`ddclient`)가 주기적으로 "내 현재 IP"를 확인합니다.
 2. IP가 바뀐 것을 감지하면, Cloudflare API를 호출하여 "제 IP가 이걸로 바뀌었어요! DNS 기록 수정해주세요!"라고 요청합니다.
 3. Cloudflare는 전 세계 DNS 서버에 변경된 IP를 전파합니다.
 
 ### 1.2 구현: ddclient 설정
+
 리눅스 표준 패키지인 `ddclient`를 사용합니다.
 
     # /etc/ddclient.conf 핵심 설정
@@ -30,6 +35,7 @@ description: "유동 IP 환경의 한계를 극복하는 DDNS 원리, Kubernetes
     argocd.movingzero.org, homeserver.movingzero.org
 
 ### 1.3 트러블슈팅: 캐시 문제
+
 `ddclient`는 불필요한 API 호출을 막기 위해 마지막 성공/실패 기록을 캐싱합니다. 설정 오류로 한번 실패하면 설정을 고쳐도 "5분 뒤에 다시 해"라며 멈춰있을 수 있습니다. 이때는 캐시를 지워야 합니다.
 
     # 캐시 삭제 후 강제 실행 및 로그 확인
@@ -41,14 +47,16 @@ description: "유동 IP 환경의 한계를 극복하는 DDNS 원리, Kubernetes
 ## 2. 보안의 핵심: Cert-Manager와 DNS-01 Challenge
 
 ### 2.1 원리: DNS-01 챌린지란?
+
 HTTPS를 적용하려면 공인 인증서(Let's Encrypt)가 필요합니다. 인증 기관은 "이 도메인이 진짜 네 거냐?"라고 묻는데, 이를 증명하는 방식을 **Challenge**라고 합니다.
 
-* **HTTP-01 (일반적):** "네 웹서버의 특정 경로에 내가 준 파일을 올려봐." (포트 80이 열려있어야 함. 홈서버 환경에선 ISP가 포트 80을 막는 경우가 많아 불편함.)
-* **DNS-01 (홈서버 추천):** "네 도메인 DNS에 내가 준 암호를 TXT 레코드로 등록해봐." (API로 자동화 가능, 내부망 서버도 발급 가능, **와일드카드 인증서 발급 가능**)
+- **HTTP-01 (일반적):** "네 웹서버의 특정 경로에 내가 준 파일을 올려봐." (포트 80이 열려있어야 함. 홈서버 환경에선 ISP가 포트 80을 막는 경우가 많아 불편함.)
+- **DNS-01 (홈서버 추천):** "네 도메인 DNS에 내가 준 암호를 TXT 레코드로 등록해봐." (API로 자동화 가능, 내부망 서버도 발급 가능, **와일드카드 인증서 발급 가능**)
 
 우리는 서브도메인 관리를 편하게 하기 위해 `*.movingzero.org` 와일드카드 인증서를 **DNS-01 방식**으로 발급받습니다.
 
 ### 2.2 구현: ClusterIssuer 및 Certificate
+
 Kubernetes의 `cert-manager`가 이 과정을 대신 수행해줍니다.
 
 1.  **ClusterIssuer:** 인증서를 발급해줄 기관(Let's Encrypt)과 대화하는 방법을 정의합니다. (Cloudflare API 토큰 사용)
@@ -61,15 +69,18 @@ Kubernetes의 `cert-manager`가 이 과정을 대신 수행해줍니다.
 ## 3. 차세대 라우팅: Gateway API (v1)
 
 ### 3.1 원리: Ingress vs Gateway API
+
 기존의 Ingress는 단순했지만, 설정이 유연하지 못했습니다. **Gateway API**는 이를 개선한 차세대 표준입니다.
 
-* **Gateway (인프라 팀):** "나는 443 포트를 열고, SSL 인증서를 끼워서 암호화된 요청을 받을게." (진입점 정의)
-* **HTTPRoute (개발 팀):** "나는 `/api`로 들어오는 요청을 `api-service`로 보낼게." (라우팅 규칙 정의)
+- **Gateway (인프라 팀):** "나는 443 포트를 열고, SSL 인증서를 끼워서 암호화된 요청을 받을게." (진입점 정의)
+- **HTTPRoute (개발 팀):** "나는 `/api`로 들어오는 요청을 `api-service`로 보낼게." (라우팅 규칙 정의)
 
 이 둘이 분리되어 있어 관리가 훨씬 명확합니다.
 
 ### 3.2 핵심 설정: SSL Termination (종료)
+
 우리는 **SSL Termination** 방식을 사용합니다.
+
 1.  사용자 ↔ Gateway: **HTTPS (암호화)**
 2.  Gateway: 여기서 암호를 풉니다. (인증서 사용)
 3.  Gateway ↔ 내부 파드(ArgoCD): **HTTP (평문)**
@@ -81,6 +92,7 @@ Kubernetes의 `cert-manager`가 이 과정을 대신 수행해줍니다.
 ## 4. 실전 문제 해결: ArgoCD 무한 리다이렉트
 
 ### 4.1 문제 상황
+
 ArgoCD는 기본적으로 보안을 위해 "HTTP로 접속하면 HTTPS로 강제 이동(Redirect)" 시키는 기능이 켜져 있습니다.
 
 1.  사용자가 HTTPS로 Gateway에 접속.
@@ -89,6 +101,7 @@ ArgoCD는 기본적으로 보안을 위해 "HTTP로 접속하면 HTTPS로 강제
 4.  사용자는 다시 HTTPS로 접속 -> Gateway가 풀어서 HTTP로 전달 -> ArgoCD가 또 리다이렉트... (무한 루프)
 
 ### 4.2 해결 방법: Insecure Mode
+
 ArgoCD에게 "내 앞에 Gateway가 보안을 챙겨주고 있으니, 너는 안심하고 HTTP로 통신해도 돼"라고 알려줘야 합니다.
 
     # ArgoCD ConfigMap 수정
