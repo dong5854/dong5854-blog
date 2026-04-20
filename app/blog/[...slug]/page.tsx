@@ -9,6 +9,7 @@ import { Metadata } from 'next'
 import siteMetadata from '@/data/siteMetadata'
 import { notFound } from 'next/navigation'
 
+const isProduction = process.env.NODE_ENV === 'production'
 const defaultLayout = 'PostLayout'
 const layouts = {
   PostLayout,
@@ -22,10 +23,10 @@ export async function generateMetadata({
   const { slug: slugParts } = await params
   const slug = decodeURI(slugParts.join('/'))
   const post = allBlogs.find((p) => p.slug === slug)
-  const authorList = post?.authors || ['default']
-  if (!post) {
+  if (!post || (isProduction && post.draft)) {
     return
   }
+  const authorList = post.authors || ['default']
   const authorDetails = authorList
     .map((author) => {
       const authorResults = allAuthors.find((p) => p.slug === author)
@@ -72,7 +73,8 @@ export async function generateMetadata({
 }
 
 export const generateStaticParams = async () => {
-  const paths = allBlogs.map((p) => ({ slug: p.slug.split('/') }))
+  const blogs = isProduction ? allBlogs.filter((p) => !p.draft) : allBlogs
+  const paths = blogs.map((p) => ({ slug: p.slug.split('/') }))
 
   return paths
 }
@@ -90,7 +92,7 @@ export default async function Page({ params }: { params: Promise<{ slug: string[
   const prev = sortedCoreContents[postIndex + 1]
   const next = sortedCoreContents[postIndex - 1]
   const post = allBlogs.find((p) => p.slug === slug)
-  if (!post) notFound()
+  if (!post || (isProduction && post.draft)) notFound()
   const authorList = post.authors || ['default']
   const authorDetails = authorList
     .map((author) => {
