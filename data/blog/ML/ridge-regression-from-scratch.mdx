@@ -130,6 +130,30 @@ $p$에 값을 대입하면 우리가 아는 norm들이 나온다.
 - 선형 회귀 + L2 = **Ridge**
 - L1 + L2 섞기 = **Elastic Net**
 
+## Lasso와 Ridge라는 이름의 유래
+
+두 모델이 나란히 등장하면서도 작명 방식은 꽤 다르다.
+
+### Ridge
+
+**Hoerl & Kennard(1970)**의 논문 "Ridge Regression: Biased Estimation for Nonorthogonal Problems"에서 도입됐다. Hoerl이 이전부터 쓰던 ridge analysis라는 통계 기법에서 이름을 가져왔고 두 이미지가 겹쳐 있다.
+
+- **대각선이 솟는 모양**: 정규방정식에서 $X^\top X$에 $\alpha I$를 더하는 것은 대각선만 $\alpha$만큼 튀어나오게 하는 연산이다. 이 모양이 지형학의 능선(ridge)을 닮았다.
+- **Ridge trace**: $\alpha$를 0부터 키우며 각 weight가 어떻게 변하는지 그린 그래프를 Hoerl이 ridge trace라 불렀다. 곡선들이 산등성이를 따라가는 자취처럼 보인다.
+
+### Lasso
+
+**Robert Tibshirani(1996)**의 논문 "Regression Shrinkage and Selection via the Lasso"에서 도입됐다. 이름은 두 겹의 의미를 동시에 담고 있다.
+
+- **약어**: **L**east **A**bsolute **S**hrinkage **and** **S**election **O**perator. L1의 핵심 효과(절댓값, 축소, feature 선택, 연산자)를 머리글자로 묶어 LASSO가 된다.
+- **은유**: lasso는 카우보이가 쓰는 올가미 밧줄이다. L1 제약이 weight 공간에 마름모 영역을 만들어 해를 꼭짓점(=0 좌표축)으로 끌어당기는 모습이 올가미가 weight를 낚아채는 그림과 맞아떨어진다.
+
+학문적 정확성과 직관적 은유를 동시에 챙긴 작명이다.
+
+### Elastic Net
+
+L1과 L2를 섞은 **Elastic Net**(Zou & Hastie, 2005)은 이름 자체가 "탄성 그물"이라는 뜻이다. Lasso의 올가미 은유를 더 넓게 감싸는 그물로 확장한 작명이다.
+
 ## $\alpha \lVert \mathbf{w} \rVert^2$는 정확히 L2인가
 
 엄밀히 말하면 L2 norm은 제곱합의 **루트**다.
