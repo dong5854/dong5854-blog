@@ -1,0 +1,246 @@
+---
+title: 'NumPy로 라소 회귀 밑바닥부터 구현하기'
+date: '2026-04-23'
+tags: ['ML', 'math', 'numpy']
+draft: false
+summary: Lasso Regression from Scratch
+---
+
+[TensorTonic의 Lasso Regression 문제](https://www.tensortonic.com/study-plans/cracking-ml/ml-lasso-regression)를 NumPy만으로 경사하강법으로 풀면서 정리했다. 선형 회귀에 L1 페널티를 더한 구조인데 $|w|$ 가 $w = 0$에서 미분 불가능하다는 성질 때문에 **서브그래디언트**라는 개념을 빌려야 한다. 이 한 지점이 라소를 L2 기반 정규화와 기능적으로 갈라놓기 때문에 그 부분을 중심으로 다룬다.
+
+# 라소 회귀 모델
+
+라소 회귀(Lasso Regression)는 **선형 회귀에 L1 정규화(L1 regularization)를 더한 모델**이다. 예측 식은 선형 회귀와 동일하다.
+
+$$
+\hat{\mathbf{y}} = X\mathbf{w} + b
+$$
+
+바뀌는 것은 손실 함수다. MSE 뒤에 weight 절댓값 합 형태의 페널티가 붙는다.
+
+$$
+L(\mathbf{w}, b) = \frac{1}{n} \sum_{i=1}^{n} (\hat{y}_i - y_i)^2 + \alpha \sum_{j=1}^{d} |w_j|
+$$
+
+- 앞항: MSE (선형 회귀와 동일)
+- 뒷항: $\lVert \mathbf{w} \rVert_1 = \sum_j |w_j|$ — L1 norm이라 부르고 weight 절댓값의 합이다
+- $\alpha$: 정규화 강도 ($\alpha = 0$이면 일반 선형 회귀와 동치)
+
+**bias $b$는 페널티에 포함되지 않는다**. 이유는 뒤에서 따로 다룬다.
+
+# L2 정규화와의 결정적 차이: 정확히 0
+
+L2 정규화는 weight를 0 **근처까지** 끌어당기지만 L1은 weight를 **정확히 0**으로 만든다. 이 차이가 라소를 쓰는 가장 큰 이유이고 릿지와 구분되는 지점이다.
+
+도함수의 모양을 보면 차이가 바로 드러난다.
+
+- $w^2$의 도함수 $2w$는 $w$가 작아질수록 함께 줄어든다. 0 근처에서 끌어내리는 힘이 약해져 끝까지 도달하지 못한다.
+- $|w|$의 도함수 $\pm 1$은 $w$의 크기와 무관하게 일정하다. 0까지 동일한 힘으로 밀어붙인다.
+
+weight가 정확히 0이 된다는 것은 단순히 수치가 작아지는 것과 의미가 다르다. 그 feature가 **모델에서 통째로 빠진다**. 라소는 학습과 feature selection을 동시에 수행하는 셈이다. 후보 feature가 수백 개여도 중요한 몇 개만 남기고 나머지 가중치를 0으로 만드는 **희소한(sparse) 모델**이 자연스럽게 얻어진다.
+
+## 언제 라소가 유리한가
+
+- **차원이 높고 실제로 유의미한 feature는 소수인 상황**: 유전자 발현 데이터처럼 feature 수가 샘플보다 많은($p > n$) 환경에서 자동 feature selection이 해석 가능한 소형 모델을 만든다.
+- **결과를 사람이 읽어야 할 때**: "어떤 변수가 살아남았는가"가 그대로 리포트가 된다. 가중치를 모든 feature에 조금씩 흩뿌리는 L2는 읽기 까다롭다.
+
+반대로 라소가 약한 경우도 있다.
+
+- **상관관계가 강한 feature 그룹**: 비슷한 feature 중 임의로 하나만 살리고 나머지를 0으로 밀어 결과가 불안정하다. 이럴 땐 L1과 L2를 섞은 **Elastic Net**이 낫다.
+- **모든 feature가 약하지만 조금씩 기여하는 상황**: 0으로 깎아내면 정보가 사라진다. L2 기반이 유리하다.
+
+# $|w|$는 어떻게 미분하는가: 서브그래디언트
+
+$|w|$는 $w = 0$에서 꺾여 있어 미분이 존재하지 않는다. 왼쪽에서 접근하면 기울기가 $-1$ 오른쪽에서 접근하면 $+1$로 뚝 끊어진다. 그럼 경사하강법에 쓸 gradient는 어디서 가져오는가.
+
+여기서 등장하는 개념이 **서브그래디언트(subgradient)**다. 볼록 함수에서 미분 불가능한 점을 아래에서 받치는 모든 접선의 기울기를 모은 집합이다. $|w|$에 적용하면 다음과 같이 정의된다.
+
+$$
+\partial |w| = \begin{cases}
+\{+1\} & w > 0 \\
+[-1,\ +1] & w = 0 \\
+\{-1\} & w < 0
+\end{cases}
+$$
+
+$w = 0$에서는 $[-1, 1]$ 안의 어떤 값을 골라도 유효한 서브그래디언트다. 이론상 자유지만 구현에서는 보통 $0$을 택한다. NumPy의 `np.sign(0) = 0`이 이 선택과 정확히 맞아떨어져서 한 번의 호출로 세 경우 분기가 끝난다.
+
+## sign 함수
+
+수학에서 말하는 **부호 함수**(signum function)는 숫자의 크기는 버리고 부호만 뽑아내는 함수다.
+
+$$
+\text{sign}(x) =
+\begin{cases}
++1 & x > 0 \\
+0 & x = 0 \\
+-1 & x < 0
+\end{cases}
+$$
+
+모든 실수는 **"부호 × 크기"**로 쪼갤 수 있고 그 "부호" 부분을 담당하는 게 `sign`이다.
+
+$$
+x = \text{sign}(x) \cdot |x|
+$$
+
+NumPy의 `np.sign`은 이 부호 함수를 벡터화한 구현이다. 배열을 넣으면 원소별로 부호만 뽑아 같은 모양으로 돌려준다.
+
+```python
+>>> import numpy as np
+>>> np.sign(np.array([-4, 0, 7, -0.1]))
+array([-1.,  0.,  1., -1.])
+```
+
+$|w_j|$의 도함수가 $w_j$의 부호와 같으므로 $\alpha \sum_j |w_j|$를 $\mathbf{w}$로 미분한 결과는 원소별 부호에 $\alpha$를 곱한 벡터가 된다.
+
+$$
+\frac{\partial}{\partial \mathbf{w}} \alpha \sum_j |w_j| = \alpha \cdot \text{sign}(\mathbf{w})
+$$
+
+# 기울기 유도
+
+손실을 두 항으로 나눠 각각 미분한 뒤 합친다.
+
+$$
+L = \underbrace{\frac{1}{n} \sum_{i=1}^{n} (\hat{y}_i - y_i)^2}_{L_{\text{MSE}}} + \underbrace{\alpha \sum_{j=1}^{d} |w_j|}_{L_{\text{L1}}}
+$$
+
+## MSE 부분
+
+$\hat{y}_i = w_1 x_{i1} + w_2 x_{i2} + \cdots + w_d x_{id} + b$이므로 $w_j$에 대한 편미분은 체인룰로 풀린다.
+
+$$
+\frac{\partial}{\partial w_j} (\hat{y}_i - y_i)^2
+= 2 (\hat{y}_i - y_i) \cdot \frac{\partial \hat{y}_i}{\partial w_j}
+= 2 (\hat{y}_i - y_i) \cdot x_{ij}
+$$
+
+모든 $i$에 대해 합친 뒤 $\frac{1}{n}$을 곱하면
+
+$$
+\frac{\partial L_{\text{MSE}}}{\partial w_j} = \frac{2}{n} \sum_{i=1}^{n} (\hat{y}_i - y_i) x_{ij}
+$$
+
+벡터로 묶으면 $\frac{2}{n} X^\top (\hat{\mathbf{y}} - \mathbf{y})$다.
+
+## L1 페널티 부분
+
+$\sum_j |w_j|$를 $w_j$로 미분하면 $j$번 항만 살아남고 그 항의 서브그래디언트가 `sign(w_j)`다.
+
+$$
+\frac{\partial L_{\text{L1}}}{\partial w_j} = \alpha \cdot \text{sign}(w_j)
+$$
+
+## 합치기
+
+두 항을 더하면 문제에서 주어진 공식이 그대로 나온다.
+
+$$
+\frac{\partial L}{\partial \mathbf{w}} = \frac{2}{n} X^\top (\hat{\mathbf{y}} - \mathbf{y}) + \alpha \cdot \text{sign}(\mathbf{w})
+$$
+
+L1 페널티에 $b$가 없으므로 bias 기울기는 MSE 항만 남는다.
+
+$$
+\frac{\partial L}{\partial b} = \frac{2}{n} \sum_{i=1}^{n} (\hat{y}_i - y_i)
+$$
+
+## 왜 bias는 규제하지 않나
+
+bias는 출력 전체를 위아래로 평행 이동시키는 역할이다. 데이터의 평균이 1000 근처라면 bias도 1000 근처에 있어야 한다. 여기에 "0 쪽으로 끌어라"는 강제가 걸리면 모델이 데이터 중심을 맞추지 못하고 예측이 전체적으로 평균에서 어긋난다.
+
+반면 weight는 "입력과 출력 사이 관계의 세기"라서 작아지더라도 모델이 올바른 방향을 가리킬 수 있다. weight 규제는 민감도만 조절하고 중심은 건드리지 않는다. bias 규제는 중심 자체를 건드린다. 그래서 L1 L2 어느 쪽이든 페널티 항에서 $b$를 제외하는 게 관례이고 `scikit-learn`의 `Lasso`와 `Ridge`도 기본 설정에서 intercept를 규제 대상으로 두지 않는다.
+
+## L2 페널티와 비교
+
+같은 자리에 들어가는 페널티 항의 미분 결과만 바뀐다.
+
+| 페널티    | 원식                                | $\mathbf{w}$ 기울기                    | 0 근처에서의 힘           |
+| --------- | ----------------------------------- | -------------------------------------- | ------------------------- |
+| L2 (릿지) | $\alpha \lVert \mathbf{w} \rVert^2$ | $2 \alpha \mathbf{w}$                  | weight에 비례해 약해짐    |
+| L1 (라소) | $\alpha \lVert \mathbf{w} \rVert_1$ | $\alpha \cdot \text{sign}(\mathbf{w})$ | weight 크기와 무관한 상수 |
+
+0 근처에서 힘이 어떻게 작용하는지가 sparsity의 수학적 원천이다. L2는 가까워질수록 힘이 빠지고 L1은 끝까지 같은 힘으로 민다.
+
+# NumPy 구현
+
+```python
+import numpy as np
+
+def lasso_regression(X, y, lr, epochs, alpha):
+    """
+    Perform Lasso Regression using gradient descent with L1 subgradient.
+    Returns: tuple of (weights_list, bias_float)
+    """
+    X = np.asarray(X, dtype=float)
+    y = np.asarray(y, dtype=float)
+
+    n_samples, n_features = X.shape
+
+    w = np.zeros(n_features)
+    b = 0.0
+
+    for _ in range(epochs):
+        y_hat = X @ w + b
+        error = y_hat - y
+
+        dw = (2 / n_samples) * (X.T @ error) + alpha * np.sign(w)
+        db = (2 / n_samples) * np.sum(error)
+
+        w -= lr * dw
+        b -= lr * db
+
+    weights = [round(float(v), 4) for v in w]
+    bias = round(float(b), 4)
+    return weights, bias
+```
+
+L2 기반 구현과 비교하면 `dw`에 더해지는 항이 $2 \alpha \mathbf{w}$에서 $\alpha \cdot \text{sign}(\mathbf{w})$로 바뀐 한 줄이 차이의 전부다. `db`는 규제 대상이 아니므로 그대로다.
+
+## 해법이 동작하는 이유
+
+- **L1 서브그래디언트가 붙은 경사하강법**: 표준 경사하강법의 weight 기울기에 L1 norm의 서브그래디언트가 더해진다. L1의 서브그래디언트는 weight의 부호 그 자체라서 양수면 $+1$ 음수면 $-1$ $w = 0$에서는 구간 $[-1, 1]$ 중 $0$을 관습적으로 택한다. `np.sign`이 이 세 경우를 한 번에 처리한다.
+- **bias는 규제 대상이 아님**: bias 기울기는 정규화 항 없이 MSE 도함수만 받는다. bias까지 규제하면 예측이 데이터 평균에서 벗어나 모델 정확도가 떨어지므로 표준 관례에서 제외한다.
+- **Sparsity 효과**: L1 서브그래디언트는 weight를 0 쪽으로 민다. $\alpha$가 충분히 크면 일부 weight가 **정확히 0**이 되면서 해당 feature를 모델에서 빼는 feature selection이 자동으로 수행된다. weight를 0 쪽으로 줄이기만 할 뿐 제거하지는 않는 L2 정규화와 라소를 가르는 결정적 차이다.
+
+# Sparsity의 기하학적 직관
+
+도함수에서 본 sparsity 근거를 기하학적으로 보면 직관이 더 빠르게 잡힌다.
+
+## 제약조건 영역의 모양
+
+정규화를 "weight가 일정 반경 안에 있어야 한다"는 제약으로 바꿔 본다.
+
+- L2: $w_1^2 + w_2^2 \le r^2$ → **원**
+- L1: $|w_1| + |w_2| \le r$ → **마름모** (꼭짓점이 축 위)
+
+MSE의 등고선(타원)이 이 영역과 처음 만나는 점이 최적해다.
+
+- **원**과 타원이 만나는 지점이 축 위에 찍힐 확률은 거의 0이다. 매끄러운 원 위에서는 접점이 일반적인 위치에 생겨 두 성분이 모두 0이 아니다.
+- **마름모**는 축 위에 **꼭짓점**이 있다. 경계의 기울기가 꼭짓점에서 한 번에 꺾이기 때문에 타원이 여기에 걸리기 쉽다. 꼭짓점에 걸리는 순간 그 축의 weight가 정확히 0이다.
+
+L1 페널티가 만드는 마름모의 뾰족한 꼭짓점이 sparsity의 기하학적 원천이다.
+
+## 실제로는 "정확히 0"이 안 될 수 있다
+
+한 가지 주의점이 있다. 이 문제처럼 평범한 서브그래디언트 경사하강법만 쓰면 float64 연산에서 weight가 0 근방까지 도달하더라도 완벽히 0에 안착하지 못하고 부호가 뒤집히며 진동하기 쉽다. `np.sign`이 매 step마다 방향을 뒤집기 때문에 learning rate와 $\alpha$가 맞지 않으면 oscillation이 생긴다.
+
+실제 라소 솔버가 이 한계 때문에 쓰는 알고리즘이 **proximal gradient**(ISTA/FISTA)와 **coordinate descent**다. 이들은 매 step마다 soft thresholding을 적용해 작은 weight를 **명시적으로 0으로 잘라낸다**.
+
+$$
+w_j \leftarrow \text{sign}(w_j) \cdot \max(|w_j| - \lambda,\ 0)
+$$
+
+scikit-learn의 `Lasso`도 내부적으로 coordinate descent를 쓴다. 이번 문제에서 서브그래디언트 방식을 쓰는 건 개념을 보여주기 위함이고 실무에서 진짜 희소 해가 필요하면 proximal 계열이 답이라는 점만 기억해 두면 된다.
+
+# 마무리
+
+라소 회귀 구현에서 남는 포인트는 네 가지다.
+
+- **L1 페널티는 $w = 0$에서 미분 불가능하지만 서브그래디언트로 gradient를 확장할 수 있다.** 구현에서는 `np.sign(w)`가 그 서브그래디언트를 그대로 구현한다.
+- **L1의 힘은 0에서도 사라지지 않는다.** 도함수가 $\pm 1$의 상수 크기라 weight를 0까지 밀어붙일 수 있고 이것이 sparsity와 feature selection의 정체다.
+- **bias는 L1 정규화에서도 규제 대상이 아니다.** 데이터 중심을 맞추는 역할이라 규제하면 예측이 평균에서 어긋난다.
+- **서브그래디언트 GD는 개념 설명용 알고리즘이다.** 진짜 희소 해가 필요하면 soft thresholding이 들어간 proximal/coordinate descent를 써야 한다.
+
+MSE 뒤에 $\lVert \mathbf{w} \rVert^2$가 붙으면 L2 정규화 $\lVert \mathbf{w} \rVert_1$이 붙으면 L1 정규화다. 경사하강법이라는 뼈대는 같고 페널티의 수학적 성질 하나가 weight를 다루는 방식과 모델의 성격을 완전히 다른 방향으로 갈라놓는다.
