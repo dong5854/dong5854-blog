@@ -1,0 +1,311 @@
+---
+title: 'NumPy로 가우시안 나이브 베이즈 밑바닥부터 구현하기'
+date: '2026-05-14'
+tags: ['ML', 'math', 'numpy']
+draft: false
+summary: Gaussian Naive Bayes from Scratch
+---
+
+[TensorTonic의 Gaussian Naive Bayes 문제](https://www.tensortonic.com/study-plans/cracking-ml/ml-gaussian-naive-bayes)를 NumPy만으로 풀면서 정리했다. 지금까지 다뤘던 분류기 [로지스틱 회귀](/blog/ML/logistic-regression-from-scratch)와 [소프트맥스 회귀](/blog/ML/softmax-regression-from-scratch)는 손실 함수를 정의하고 경사하강법으로 결정 경계를 직접 찾는 **판별 모델**이었다. [KNN](/blog/ML/knn-classifier-from-scratch)은 그 틀을 비껴서 학습을 거의 하지 않는 lazy learner였다. 가우시안 나이브 베이즈는 또 다른 방향으로 비껴간다. 손실 함수도 경사하강법도 없고 클래스별 데이터 분포를 추정한 다음 베이즈 정리로 뒤집어 분류 결정을 내린다.
+
+# 생성 모델로서의 나이브 베이즈
+
+분류기는 크게 두 부류로 갈린다.
+
+|           | 판별 모델 (Discriminative)       | 생성 모델 (Generative)          |
+| --------- | -------------------------------- | ------------------------------- |
+| 학습 대상 | $P(y \mid \mathbf{x})$ 직접 학습 | $P(\mathbf{x} \mid y)$와 $P(y)$ |
+| 대표 모델 | 로지스틱 회귀, SVM               | 나이브 베이즈, LDA              |
+| 결정 경계 | 직접 그림                        | 베이즈 정리로 유도              |
+| 강점      | 데이터가 충분하면 정확도 높음    | 작은 데이터 / 결측치 처리       |
+
+판별 모델은 "이 데이터가 어느 클래스에 속할지"를 곧장 묻는다. 생성 모델은 한 단계 우회한다. 먼저 "이 클래스에서 이런 데이터가 얼마나 자연스러운가"를 모델링하고 베이즈 정리로 뒤집어 분류 결정에 쓴다.
+
+이 우회가 가져오는 실용적 이점이 있다. 클래스별 데이터 분포를 직접 모델링하므로 합성 데이터 생성이 가능하고 결측 feature를 자연스럽게 처리한다. 데이터가 적을 때 추정해야 할 파라미터 수도 적어 과적합에 강하다.
+
+# 베이즈 정리에서 출발
+
+분류는 결국 다음을 풀고 싶은 문제다.
+
+$$
+\hat{y} = \arg\max_{c} P(c \mid \mathbf{x})
+$$
+
+$P(c \mid \mathbf{x})$를 직접 추정하기는 어렵다. 베이즈 정리로 방향을 뒤집는다.
+
+$$
+P(c \mid \mathbf{x}) = \frac{P(\mathbf{x} \mid c) \, P(c)}{P(\mathbf{x})} \propto P(\mathbf{x} \mid c) \, P(c)
+$$
+
+분모 $P(\mathbf{x})$는 클래스와 무관한 상수다. 어느 클래스를 계산하든 같은 값으로 나누므로 argmax의 결과를 바꾸지 않는다. 그래서 등호가 비례 기호로 바뀐다.
+
+각 항의 역할은 이렇다.
+
+- $P(c)$ — **사전 확률(prior)**. 학습 데이터에서 클래스 $c$의 빈도로 추정.
+- $P(\mathbf{x} \mid c)$ — **우도(likelihood)**. 클래스가 $c$일 때 $\mathbf{x}$가 얼마나 그럴듯한가.
+- $P(c \mid \mathbf{x})$ — **사후 확률(posterior)**. 우리가 비교하고 싶은 값.
+
+# 나이브 가정
+
+$\mathbf{x}$가 $d$차원 벡터라면 $P(\mathbf{x} \mid c)$는 $d$차원 결합 분포다. 결합 분포를 그대로 모델링하려면 파라미터가 지수적으로 늘어난다. 이를 피하려고 **각 feature가 클래스 안에서 서로 독립**이라고 가정한다.
+
+$$
+P(\mathbf{x} \mid c) = \prod_{j=1}^{d} P(x_j \mid c)
+$$
+
+이 가정은 현실에서 거의 성립하지 않는다. 키와 몸무게는 상관관계가 있고 이메일에서 "무료"와 "당첨"은 함께 등장하기 쉽다. 그럼에도 분류기가 잘 동작하는 이유는 분류가 **클래스 순위만 맞추면 되지 정확한 확률을 추정할 필요가 없기 때문**이다. 확률 값 자체는 부정확하지만 어느 클래스의 점수가 가장 큰지는 보통 잘 맞춘다.
+
+# 가우시안 가정
+
+연속형 feature에 대해 $P(x_j \mid c)$를 어떻게 계산할지가 다음 문제다. 가우시안 나이브 베이즈는 이 자리에 **정규분포 PDF**를 그대로 꽂는다.
+
+$$
+P(x_j \mid c) = \frac{1}{\sqrt{2\pi \sigma_{c,j}^2}} \exp\!\left( -\frac{(x_j - \mu_{c,j})^2}{2\sigma_{c,j}^2} \right)
+$$
+
+식이 어디서 유도되는 게 아니라 **모델링 선택**이다. "클래스 $c$ 안에서 $j$번째 feature가 평균 $\mu_{c,j}$ 분산 $\sigma_{c,j}^2$인 정규분포를 따른다"고 가정한 결과 그 정의를 그대로 가져다 쓴 것뿐이다. 다른 분포를 가정하면 다른 변종이 된다.
+
+| 변종           | 분포 가정     | 적합한 feature         |
+| -------------- | ------------- | ---------------------- |
+| Gaussian NB    | 정규분포      | 키, 몸무게 같은 연속값 |
+| Multinomial NB | 다항분포      | 단어 빈도              |
+| Bernoulli NB   | 베르누이      | 0/1 이진 feature       |
+| Categorical NB | 카테고리 분포 | 범주형 feature         |
+
+학습 단계에서 모델이 추정해야 하는 값은 클래스-feature 쌍마다의 $\mu_{c,j}$와 $\sigma_{c,j}^2$뿐이다. 클래스가 $K$개 feature가 $d$개면 총 $2 \cdot K \cdot d$개의 숫자가 모델의 전부다.
+
+# 로그 공간으로 옮기기
+
+식을 그대로 곱해서 점수를 계산하면 곤란한 일이 두 가지 생긴다.
+
+- $d$가 커지면 작은 확률을 수십 번 곱하면서 부동소수점이 표현할 수 있는 하한 아래로 내려간다. **언더플로우**가 일어나 점수가 모두 0이 된다.
+- 정규화 상수의 제곱근과 지수함수가 매번 계산되어 비싸다.
+
+로그를 씌우면 두 문제가 동시에 풀린다. 곱셈이 덧셈으로 바뀌고 지수함수가 사라진다. argmax의 결과는 로그가 단조 함수라 보존된다.
+
+$$
+\log P(c \mid \mathbf{x}) \propto \log P(c) + \sum_{j=1}^{d} \log P(x_j \mid c)
+$$
+
+가우시안 PDF의 로그는 다음과 같이 깔끔하게 분해된다.
+
+$$
+\log P(x_j \mid c) = -\frac{1}{2} \log(2\pi \sigma_{c,j}^2) - \frac{(x_j - \mu_{c,j})^2}{2 \sigma_{c,j}^2}
+$$
+
+앞에 붙은 $-\frac{1}{2}$는 정규화 상수에 있던 $\sqrt{\cdot}$이 로그를 통과하면서 $\frac{1}{2}$ 지수로 빠져나온 결과다. $\sqrt{2\pi\sigma^2}$이 분모에 있었으므로 음수 부호까지 같이 따라 나온다.
+
+최종 예측은 모든 클래스 중 가장 큰 로그 사후 확률을 가진 것을 고른다.
+
+$$
+\hat{y} = \arg\max_{c} \left[ \log P(c) + \sum_{j=1}^{d} \log P(x_j \mid c) \right]
+$$
+
+# 분산 0 문제
+
+학습 데이터에서 어떤 클래스의 특정 feature가 모두 같은 값이라면 그 feature의 분산이 0이 된다. 위 식의 첫 항은 $\log(0) = -\infty$로 발산하고 둘째 항은 0으로 나누는 상황이 된다. 정규분포가 그 점에서 디랙 델타로 무너진다는 뜻이다.
+
+해결은 단순하다. 모든 분산에 작은 상수 $\varepsilon = 10^{-9}$를 더한다.
+
+$$
+\sigma_{c,j}^2 \leftarrow \sigma_{c,j}^2 + \varepsilon
+$$
+
+**분산 스무딩(variance smoothing)** 이라 부르며 표준 관행이다. scikit-learn의 `GaussianNB`도 `var_smoothing` 파라미터의 기본값을 `1e-9`로 둔다.
+
+# NumPy 구현 — 명시적 루프 버전
+
+```python
+import numpy as np
+
+def gaussian_nb(X_train, y_train, X_test):
+    """
+    Returns: A list of predicted integer labels for each test point
+    """
+    X_train = np.asarray(X_train, dtype=float)
+    y_train = np.asarray(y_train, dtype=int)
+    X_test = np.asarray(X_test, dtype=float)
+
+    classes = np.unique(y_train)
+
+    class_log_priors = {}
+    class_means = {}
+    class_variances = {}
+
+    for c in classes:
+        X_c = X_train[y_train == c]
+        class_log_priors[c] = np.log(len(X_c) / len(X_train))
+        class_means[c] = np.mean(X_c, axis=0)
+        class_variances[c] = np.var(X_c, axis=0) + 1e-9
+
+    predictions = []
+    for x in X_test:
+        best_log_score = float('-inf')
+        best_label = None
+
+        for c in classes:
+            log_likelihoods = (
+                -0.5 * np.log(2 * np.pi * class_variances[c])
+                - (x - class_means[c]) ** 2 / (2 * class_variances[c])
+            )
+            log_score = class_log_priors[c] + np.sum(log_likelihoods)
+
+            if log_score > best_log_score:
+                best_log_score = log_score
+                best_label = c
+
+        predictions.append(int(best_label))
+
+    return predictions
+```
+
+회귀 모델 구현은 `for _ in range(epochs)` 안에서 파라미터를 갱신하는 게 본체였는데 여기에는 그 루프가 통째로 없다. 학습이라고 부를 만한 부분도 사실상 한 번의 데이터 패스로 끝난다. 클래스마다 데이터를 골라 평균과 분산을 구하고 사전 확률을 로그로 저장하면 학습이 끝난다.
+
+## 사전 확률을 학습 시점에 로그로 저장하는 이유
+
+`class_log_priors`에 처음부터 `np.log(...)` 결과를 담아 둔다. 그냥 원본 확률을 저장하고 예측 때마다 로그를 씌워도 답은 같지만 예측 루프의 각 반복마다 `np.log`가 불리게 된다. 테스트 데이터가 $m$개 클래스가 $K$개면 $m \times K$번이다. 학습 시점에 한 번 계산해 두면 그 호출이 $K$번으로 줄어든다.
+
+## 로그 우도 한 줄에 담기
+
+가우시안 로그 PDF 식을 그대로 옮긴 부분이다.
+
+```python
+log_likelihoods = (
+    -0.5 * np.log(2 * np.pi * class_variances[c])
+    - (x - class_means[c]) ** 2 / (2 * class_variances[c])
+)
+```
+
+`class_variances[c]`와 `class_means[c]`가 $(d,)$ 모양 벡터고 `x`도 $(d,)$다. 위 식은 feature 축을 따라 element-wise로 계산되어 결과도 $(d,)$ 모양이다. 즉 **feature별 로그 우도 벡터**가 한 번에 만들어진다. 그 다음 `np.sum`으로 feature 축을 합치면 클래스 $c$ 한 곳에서의 로그 우도 합이 스칼라로 떨어진다.
+
+이 한 줄이 처음에는 어색하게 보이는데 사실 나이브 가정과 로그의 조합 덕분이다. 가정이 없었다면 결합 분포 하나를 모델링해야 했고 로그가 없었다면 곱셈을 명시적으로 돌아야 했다.
+
+## argmax 패턴
+
+```python
+best_log_score = float('-inf')
+best_label = None
+
+for c in classes:
+    ...
+    if log_score > best_log_score:
+        best_log_score = log_score
+        best_label = c
+```
+
+전체 점수 배열을 만들지 않고 진행하면서 최댓값을 추적하는 형태다. 로그 공간이라 점수가 모두 음수일 수 있으므로 초깃값을 `-1`로 두면 안 된다. `float('-inf')`로 둬야 첫 번째 클래스의 점수가 무조건 더 크다는 보장이 생긴다.
+
+# NumPy 구현 — 벡터화 버전
+
+명시적 루프 버전은 수식과 1:1로 매칭되어 읽기 좋다. 다만 테스트 데이터와 클래스 수가 커지면 파이썬 레벨의 이중 루프가 부담이 된다. 모든 (테스트 포인트, 클래스, feature) 조합의 로그 우도를 한 번의 numpy 연산으로 만들 수 있다.
+
+```python
+import numpy as np
+
+def gaussian_nb(X_train, y_train, X_test):
+    """
+    Returns: A list of predicted integer labels for each test point
+    """
+    X_train = np.asarray(X_train, dtype=float)
+    y_train = np.asarray(y_train, dtype=int)
+    X_test = np.asarray(X_test, dtype=float)
+
+    classes = np.unique(y_train)
+    K = len(classes)
+    d = X_train.shape[1]
+
+    means = np.zeros((K, d))
+    variances = np.zeros((K, d))
+    log_priors = np.zeros(K)
+
+    for i, c in enumerate(classes):
+        X_c = X_train[y_train == c]
+        means[i] = np.mean(X_c, axis=0)
+        variances[i] = np.var(X_c, axis=0) + 1e-9
+        log_priors[i] = np.log(len(X_c) / len(X_train))
+
+    diff = X_test[:, None, :] - means[None, :, :]            # (m, K, d)
+    log_likelihoods = (
+        -0.5 * np.log(2 * np.pi * variances[None, :, :])
+        - diff ** 2 / (2 * variances[None, :, :])
+    )                                                         # (m, K, d)
+
+    log_posteriors = np.sum(log_likelihoods, axis=2) + log_priors[None, :]  # (m, K)
+    best_indices = np.argmax(log_posteriors, axis=1)         # (m,)
+
+    return classes[best_indices].tolist()
+```
+
+핵심은 클래스별 통계를 dict가 아니라 $(K, d)$ 모양 행렬에 쌓는다는 점이다. 그 다음 브로드캐스팅으로 차원을 맞춘다.
+
+## 브로드캐스팅으로 차원 맞추기
+
+shape이 어떻게 변해 가는지 따라가 보면 다음과 같다.
+
+1. `X_test[:, None, :]` → $(m, 1, d)$. 중간에 길이 1짜리 축을 끼워 넣어 클래스 자리를 비운다.
+2. `means[None, :, :]` → $(1, K, d)$. 맨 앞에 길이 1짜리 축을 끼워 테스트 포인트 자리를 비운다.
+3. 두 배열을 빼면 numpy가 길이 1인 축을 늘려서 $(m, K, d)$로 맞춘다.
+4. 가우시안 식을 element-wise로 적용하면 결과도 $(m, K, d)$.
+5. `np.sum(..., axis=2)`로 feature 축을 합치면 $(m, K)$ 점수 행렬.
+6. `np.argmax(..., axis=1)`로 클래스 축에서 최댓값 인덱스를 뽑으면 $(m,)$.
+
+이중 루프 두 단계를 통째로 numpy의 C 레벨 연산으로 밀어 넣은 셈이다.
+
+## 메모리 트레이드오프
+
+벡터화의 비용은 중간에 생기는 $(m, K, d)$ 텐서다. $m = 100$ $K = 3$ $d = 20$ 정도면 6천 개 원소라 전혀 부담이 없다. 그러나 $m$이 수만 단위로 커지거나 $d$가 수백을 넘으면 메모리가 빠르게 부푼다. 이 경우 클래스 루프만 남겨 두고 그 안에서 모든 테스트 포인트를 한 번에 처리하는 **부분 벡터화**가 균형점이 된다.
+
+```python
+log_posteriors = np.zeros((len(X_test), K))
+
+for i, c in enumerate(classes):
+    diff = X_test - means[i]                                  # (m, d)
+    log_likelihoods = (
+        -0.5 * np.log(2 * np.pi * variances[i])
+        - diff ** 2 / (2 * variances[i])
+    )                                                          # (m, d)
+    log_posteriors[:, i] = np.sum(log_likelihoods, axis=1) + log_priors[i]
+
+best_indices = np.argmax(log_posteriors, axis=1)
+return classes[best_indices].tolist()
+```
+
+$(m, K, d)$ 텐서를 만들지 않으니 메모리에 안전하고 파이썬 루프는 클래스 수에 비례하는 $K$번뿐이다. 대부분의 실무 상황에서 가장 안정적인 선택이다.
+
+# 강점과 한계
+
+가우시안 나이브 베이즈의 매력은 단순함에서 온다.
+
+- **학습이 한 패스로 끝난다.** 시간 복잡도 $O(nd)$. 경사하강법이 필요 없고 하이퍼파라미터 튜닝도 사실상 분산 스무딩 상수 하나뿐이다.
+- **예측이 빠르다.** 클래스마다 평균과 분산 벡터만 들고 있으면 된다. KNN처럼 학습 데이터 전체를 들고 다니지 않는다.
+- **작은 데이터에서 잘 동작한다.** 추정할 파라미터가 적어 과적합 위험이 낮다.
+- **결측 feature를 자연스럽게 처리한다.** 곱셈 식에서 빠진 항만 빼면 끝이다. 다른 분류기 대부분이 까다롭게 다루는 부분이다.
+
+대가도 분명하다.
+
+- **나이브 가정 위반에 취약하다.** 상관관계가 강한 feature가 둘 이상 있으면 같은 정보가 중복 계산되어 한쪽 클래스로 점수가 과하게 쏠린다.
+- **확률 값 자체는 믿기 어렵다.** 분류 결과는 종종 맞아도 모델이 뱉는 확률은 보정되어 있지 않다. "이 메일이 스팸일 확률 0.97"이라는 출력이 실제로 97% 신뢰도를 의미하지는 않는다.
+- **연속 feature의 분포가 정규분포에서 크게 벗어나면 부정확해진다.** 다중 봉우리나 강한 치우침이 있으면 정규분포 한 개로는 표현이 안 된다.
+
+# 다른 분류기와 나란히
+
+지금까지 다룬 분류기들의 가정 강도를 비교하면 가우시안 NB의 위치가 분명해진다.
+
+| 모델            | 핵심 가정                                      | 학습 비용    |
+| --------------- | ---------------------------------------------- | ------------ |
+| 로지스틱 회귀   | 결정 경계가 선형                               | 경사하강법   |
+| 소프트맥스 회귀 | 클래스별 로짓이 입력의 선형 결합               | 경사하강법   |
+| KNN             | 비슷한 입력은 비슷한 출력                      | 없음 (저장)  |
+| Gaussian NB     | feature가 클래스 안에서 독립이고 각각 정규분포 | 한 번의 패스 |
+
+가우시안 NB는 가정이 가장 강한 축에 속한다. 가정이 강한 만큼 학습은 거의 공짜에 가깝고 작은 데이터에서 빠른 baseline 역할을 한다. 데이터가 충분히 모이면 보통 가정이 약한 모델이 정확도에서 앞선다.
+
+# 마무리
+
+이번 구현에서 남는 포인트는 세 가지다.
+
+- **생성 모델은 분포를 먼저 추정한다.** 경계를 직접 그리는 대신 클래스별로 데이터가 어떻게 생겼는지를 먼저 모델링하고 베이즈 정리로 분류 결정을 뽑아낸다. 작은 데이터와 결측치에 강한 이유다.
+- **나이브 가정 + 로그가 한 줄짜리 식을 만든다.** feature가 독립이라는 가정 덕에 곱으로 분해되고 로그를 씌우면 그 곱이 합으로 풀린다. 한 줄에 가우시안 PDF의 로그를 그대로 옮기면 feature별 로그 우도가 동시에 계산된다. 이 한 줄이 GNB 구현의 핵심이다.
+- **벡터화의 가치는 메모리와 함께 봐야 한다.** 완전 벡터화는 빠르지만 $(m, K, d)$ 텐서를 만든다. 데이터 규모를 보고 부분 벡터화로 균형을 잡는 편이 실무에서는 더 안전하다.
+
+가정의 강도를 한쪽 끝부터 다른 끝까지 훑어 보면 분류 문제에서 모델 선택이 결국 **얼마나 가정을 받아들일 것인가**의 문제라는 점이 보인다. 가우시안 NB는 가정이 강한 쪽 끝에서 가장 빠른 출발선을 제공한다.
