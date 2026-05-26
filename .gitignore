@@ -52,3 +52,6 @@ yarn-error.log*
 
 # TypeScript build cache
 tsconfig.tsbuildinfo
+
+# AI agent workspace
+.antigravitycli/

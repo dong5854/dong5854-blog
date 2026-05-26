@@ -1,0 +1,803 @@
+---
+title: '홈서버 구축기 2 - Kubernetes 클러스터 구축과 애플리케이션 배포'
+date: '2026-02-08'
+tags: ['homeserver', 'Kubernetes', 'Calico', 'Gateway API', 'cert-manager']
+draft: false
+summary: 단일 노드 Ubuntu 서버 위에 kubeadm으로 Kubernetes를 올리고 Calico CNI와 Gateway API cert-manager를 배치한 뒤 실제 애플리케이션을 띄우는 과정을 정리합니다.
+---
+
+지난 글에서 미니 PC에 Ubuntu Server를 설치하는 것까지 다뤘습니다. 이번 글에서는 그 서버 위에 단일 노드 **Kubernetes 클러스터**를 띄우고 실제 애플리케이션이 돌아가는 상태까지 끌고 가는 과정을 정리합니다.
+
+작업 순서는 다음과 같습니다.
+
+1. **사전 준비** - 공유기에서 서버 IP를 MAC 주소로 고정
+2. **클러스터 부트스트랩** - kubeadm으로 단일 노드 클러스터 만들기
+3. **네트워킹** - Calico CNI 설치
+4. **인증서** - cert-manager와 와일드카드 TLS 인증서
+5. **트래픽 라우팅** - NGINX Gateway Fabric과 Gateway API
+6. **애플리케이션 배포** - Kustomize 기반 프론트엔드 백엔드 DB 구성
+
+---
+
+## 1. 사전 준비: 서버 IP 고정
+
+쿠버네티스 노드는 자기 IP를 여러 곳에 박아둡니다. API 서버 인증서의 SAN과 etcd 멤버 주소와 kubelet의 advertise 주소 전부 노드 IP를 기준으로 만들어집니다. 노드가 재부팅된 뒤 다른 IP를 받으면 클러스터가 통째로 흔들리거나 아예 켜지지 않습니다.
+
+가정용 공유기는 보통 DHCP로 내부 기기에 IP를 임의 할당합니다. 서버를 항상 같은 IP에 묶어두려면 공유기 관리자 페이지에서 **MAC 주소를 특정 IP에 예약**해야 합니다. 메뉴 이름은 공유기 모델마다 다른데 'DHCP 할당 설정' 'IP/MAC 바인딩' '주소 예약' 같은 이름으로 들어가 있습니다.
+
+서버 쪽 MAC 주소는 다음 명령으로 확인합니다.
+
+```bash
+ip link show eno1
+# 2: eno1: <BROADCAST,MULTICAST,UP,LOWER_UP> ...
+#    link/ether 68:1d:ef:5c:2f:a5 brd ff:ff:ff:ff:ff:ff
+```
+
+여기서 보이는 `68:1d:ef:5c:2f:a5`가 MAC 주소입니다. 이 값을 공유기 예약 화면에 입력하고 원하는 IP를 지정해 두면 됩니다. 저는 `192.168.0.100`에 고정해 두었고 이 주소를 뒤에 나오는 kubeadm init의 advertise 주소로 사용합니다.
+
+---
+
+## 2. 클러스터 부트스트랩 (kubeadm)
+
+쿠버네티스 클러스터를 띄우는 도구는 여러 가지가 있지만 단일 노드 학습용으로는 공식 도구인 **kubeadm**이 가장 단순합니다. 설치된 클러스터 버전은 v1.34.3입니다.
+
+### 2.1 컨테이너 런타임
+
+kubelet은 컨테이너를 직접 띄우지 않습니다. 그 일은 CRI(Container Runtime Interface)를 구현한 런타임이 맡고 가장 보편적인 선택은 containerd입니다.
+
+```bash
+sudo apt update
+sudo apt install -y containerd
+sudo mkdir -p /etc/containerd
+containerd config default | sudo tee /etc/containerd/config.toml
+# 생성된 파일에서 SystemdCgroup = true 로 수정
+sudo systemctl restart containerd
+```
+
+`SystemdCgroup = true`는 cgroup 드라이버를 systemd로 맞추는 설정입니다. kubelet이 기본적으로 systemd cgroup 드라이버를 사용하기 때문에 둘을 일치시키지 않으면 파드가 안 뜹니다.
+
+### 2.2 커널 설정과 swap 비활성화
+
+브릿지 네트워크가 iptables 필터를 거치도록 만들고 IP 포워딩을 켭니다.
+
+```bash
+sudo modprobe br_netfilter
+echo "br_netfilter" | sudo tee /etc/modules-load.d/k8s.conf
+
+cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf
+net.bridge.bridge-nf-call-iptables  = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+net.ipv4.ip_forward                 = 1
+EOF
+sudo sysctl --system
+
+sudo swapoff -a
+sudo sed -i '/ swap / s/^/#/' /etc/fstab
+```
+
+swap을 끄는 이유는 단순합니다. kubelet은 swap이 켜진 노드에서는 기본적으로 시작을 거부합니다. 메모리 페이지가 swap으로 밀려나면 컨테이너의 메모리 회계가 어긋나기 때문입니다.
+
+### 2.3 kubeadm kubelet kubectl 설치
+
+쿠버네티스 공식 apt 저장소를 등록한 다음 세 도구를 함께 설치합니다.
+
+```bash
+sudo apt install -y apt-transport-https ca-certificates curl gpg
+curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.34/deb/Release.key | \
+  sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.34/deb/ /' | \
+  sudo tee /etc/apt/sources.list.d/kubernetes.list
+sudo apt update
+sudo apt install -y kubelet kubeadm kubectl
+sudo apt-mark hold kubelet kubeadm kubectl
+```
+
+`apt-mark hold`는 자동 업그레이드로 마이너 버전이 튀어 클러스터가 망가지는 사고를 막아 줍니다.
+
+### 2.4 클러스터 초기화
+
+```bash
+sudo kubeadm init \
+  --apiserver-advertise-address=192.168.0.100 \
+  --pod-network-cidr=10.244.0.0/16 \
+  --service-cidr=10.96.0.0/12
+```
+
+여기서 가장 중요한 선택이 `--pod-network-cidr`입니다. 파드에 할당될 IP 대역을 미리 정하는 옵션인데 **노드 LAN 서브넷과 절대 겹치면 안 됩니다**. 이 서버의 LAN은 `192.168.0.0/24`라서 만약 `192.168.0.0/16` 같은 값을 잡으면 파드 IP가 LAN 호스트 IP와 충돌해 라우팅이 깨집니다. 관습적으로 잘 쓰는 `10.244.0.0/16`을 그대로 따랐습니다. 뒤에서 다루는 Calico의 IPPool CIDR도 정확히 같은 값으로 맞춰야 합니다.
+
+초기화가 끝나면 admin kubeconfig를 일반 사용자 홈으로 옮깁니다.
+
+```bash
+mkdir -p $HOME/.kube
+sudo cp /etc/kubernetes/admin.conf $HOME/.kube/config
+sudo chown $(id -u):$(id -g) $HOME/.kube/config
+```
+
+단일 노드 클러스터에서는 control-plane 노드에도 일반 워크로드를 띄울 수 있도록 기본 taint를 풀어 줍니다. taint는 노드에 붙는 일종의 출입 통제 표지이고 일반 파드는 이 표지가 붙은 노드를 피하도록 스케줄링됩니다.
+
+```bash
+kubectl taint nodes --all node-role.kubernetes.io/control-plane-
+```
+
+---
+
+## 3. Calico CNI 설치
+
+클러스터는 만들었지만 파드끼리는 아직 통신을 못 합니다. **CNI(Container Network Interface)** 플러그인이 빠져 있기 때문입니다. CNI는 파드에 IP를 발급하고 노드 안팎의 라우팅을 책임지는 컴포넌트입니다.
+
+여러 후보 중 **Calico**를 골랐습니다. NetworkPolicy 지원이 강력하고 단일 노드에서도 안정적이며 Tigera Operator를 통해 선언적으로 설치할 수 있어 매니페스트만으로 관리가 끝납니다.
+
+### 3.1 오퍼레이터 설치
+
+```bash
+kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.31.3/manifests/tigera-operator.yaml
+```
+
+이 명령 하나로 `tigera-operator` 네임스페이스에 컨트롤러가 올라옵니다. 이후 모든 Calico 설정은 이 컨트롤러가 watch하는 CRD에 매니페스트를 던지는 방식으로 진행됩니다.
+
+### 3.2 Installation 리소스
+
+Calico의 핵심 설정은 `Installation` CR 하나에 모입니다.
+
+```yaml:custom-resources-iptables.yaml
+apiVersion: operator.tigera.io/v1
+kind: Installation
+metadata:
+  name: default
+spec:
+  calicoNetwork:
+    linuxDataplane: Iptables
+    nodeAddressAutodetectionV4:
+      interface: eth.*|ens.*|eno.*|enp.*
+    ipPools:
+      - name: default-ipv4-ippool
+        blockSize: 26
+        cidr: 10.244.0.0/16
+        encapsulation: VXLANCrossSubnet
+        natOutgoing: Enabled
+        nodeSelector: all()
+```
+
+각 필드를 짚어보면 다음과 같습니다.
+
+- **`linuxDataplane: Iptables`** - 데이터플레인을 iptables로 지정합니다. Calico는 BPF와 Nftables 데이터플레인도 지원하는데 이 선택의 배경은 3.5절에서 따로 설명합니다.
+- **`nodeAddressAutodetectionV4`** - Calico가 노드 IP를 결정할 때 어떤 인터페이스를 후보로 둘지 지정합니다. `eth*` `ens*` `eno*` `enp*`로 시작하는 인터페이스만 봅니다. USB 이더넷 어댑터 같은 보조 인터페이스를 잘못 잡지 않도록 막아두는 의미입니다.
+- **`cidr: 10.244.0.0/16`** - 앞서 kubeadm에 넘긴 `--pod-network-cidr`와 정확히 같은 값입니다. 두 값이 어긋나면 파드 IP 할당과 라우팅이 어긋납니다.
+- **`encapsulation: VXLANCrossSubnet`** - 노드들이 서로 다른 서브넷에 걸쳐 있을 때만 VXLAN으로 감쌉니다. 단일 노드에서는 사실상 캡슐화가 일어나지 않지만 노드를 늘릴 때를 대비한 안전한 기본값입니다.
+- **`natOutgoing: Enabled`** - 파드가 외부 인터넷으로 나갈 때 노드 IP로 SNAT(MASQUERADE)합니다. 이게 꺼져 있으면 파드 IP가 그대로 노출돼서 ISP 라우터에서 막힙니다.
+
+### 3.3 부가 컴포넌트
+
+Calico API Server와 옵저버빌리티 컴포넌트도 같이 올립니다.
+
+```yaml
+---
+apiVersion: operator.tigera.io/v1
+kind: APIServer
+metadata:
+  name: default
+spec: {}
+---
+apiVersion: operator.tigera.io/v1
+kind: Goldmane
+metadata:
+  name: default
+---
+apiVersion: operator.tigera.io/v1
+kind: Whisker
+metadata:
+  name: default
+```
+
+Goldmane은 클러스터 안에서 흐르는 트래픽 메타데이터를 모으고 Whisker는 그 데이터를 시각화하는 UI입니다. NetworkPolicy를 처음 작성할 때 어떤 트래픽이 막혔고 어떤 트래픽이 통과했는지 한눈에 보여 줘서 디버깅이 한결 수월합니다.
+
+### 3.4 이그레스 네트워크 정책
+
+파드의 외부 트래픽 흐름을 GlobalNetworkPolicy로 명시합니다. 클러스터 전역에 적용되는 정책입니다.
+
+```yaml:calico-global-egress-policy.yaml
+apiVersion: projectcalico.org/v3
+kind: GlobalNetworkPolicy
+metadata:
+  name: allow-internet-egress
+spec:
+  order: 10
+  selector: all()
+  types:
+  - Egress
+  egress:
+  # 내부 통신 허용 (Pod 및 Service 대역)
+  - action: Allow
+    destination:
+      nets:
+      - 10.244.0.0/16
+      - 10.96.0.0/12
+  # 외부 인터넷 통신 허용 (Pod 대역 제외)
+  - action: Allow
+    destination:
+      notNets:
+      - 10.244.0.0/16
+  # DNS 조회를 위한 UDP 53 포트 허용
+  - action: Allow
+    protocol: UDP
+    destination:
+      ports: [53]
+```
+
+세 줄짜리 정책입니다. 내부망(파드 대역과 서비스 대역)을 열고 외부 인터넷도 열어 두고 DNS는 UDP 53을 따로 허용합니다. `selector: all()`로 클러스터의 모든 파드에 일괄 적용됩니다.
+
+### 3.5 BPF 데이터플레인 전환 시도와 롤백
+
+Calico의 강점 중 하나로 자주 언급되는 게 BPF 데이터플레인입니다. iptables 대신 BPF 프로그램으로 패킷을 처리하고 kube-proxy까지 대체해서 처리량이 더 좋다는 이야기를 듣고 한번 옮겨 봤습니다.
+
+매니페스트는 다음과 같이 바뀌었습니다.
+
+```yaml
+calicoNetwork:
+  linuxDataplane: BPF
+  bpfNetworkBootstrap: Enabled
+  kubeProxyManagement: Enabled
+  # ...
+```
+
+부트스트랩 과정에서 몇 가지 함정을 통과한 다음 클러스터는 일단 올라왔고 파드 간 내부 통신과 ClusterIP 서비스 통신도 정상이었습니다. 그런데 **파드에서 외부 인터넷으로 나가는 트래픽이 100% 손실**되는 증상이 나타났습니다. 노드 자체에서 `ping 8.8.8.8`은 잘 가는데 파드 안에서는 한 패킷도 못 빠져나갔습니다.
+
+원인을 추적해 보니 다음과 같았습니다. BPF 모드의 natOutgoing은 BPF 프로그램이 egress 패킷에 mark `0x03800000`을 박아 주면 nft의 MASQUERADE 룰이 그 mark를 보고 발동하는 구조입니다. 그런데 이 환경에 깔린 Calico v3.31.3과 tigera-operator v1.40.3 조합에서 operator가 `nftablesMode=Enabled`를 강제로 reconcile해 버리고 BPF 프로그램이 그 상태에서 mark를 박지 않았습니다. `nat-cali-nat-outgoing` 체인의 카운터가 계속 0이라는 게 그 증거였습니다.
+
+```
+chain nat-cali-nat-outgoing {
+    meta mark & 0x03f00000 == 0x03800000 counter packets 0 bytes 0 masquerade
+}
+```
+
+operator의 reconcile을 우회해서 `nftablesMode`를 끄는 길도 있긴 합니다. 다만 운영 안정성이 떨어지고 operator를 업그레이드하면 같은 문제가 재발할 가능성이 컸습니다. 홈서버처럼 한 번 깔고 오래 굴리는 환경에서는 검증된 길이 답이라고 판단해 **다시 Iptables 데이터플레인으로 롤백**했습니다.
+
+복귀 절차는 다음과 같았습니다.
+
+```bash
+# Installation을 Iptables 데이터플레인으로 되돌리고 적용
+kubectl apply -f custom-resources-iptables.yaml
+
+# BPF 모드에서 비활성화했던 kube-proxy를 다시 활성화
+kubectl patch ds -n kube-system kube-proxy --type=json \
+  -p='[{"op":"remove","path":"/spec/template/spec/nodeSelector/non-calico"},
+       {"op":"remove","path":"/spec/template/spec/nodeSelector/operator.tigera.io~1disable-kube-proxy"}]'
+
+# BPF 부트스트랩용 ConfigMap 제거
+kubectl delete cm -n tigera-operator kubernetes-service-endpoints
+```
+
+롤백 직후 파드에서 `ping 8.8.8.8`이 3/3 정상으로 돌아왔고 TCP egress와 클러스터 DNS도 모두 정상이었습니다. iptables 백엔드의 `cali-nat-outgoing` 체인은 ipset 기반으로 MASQUERADE를 걸어 주는 구조라 BPF 프로그램에 의존하지 않고 노드를 재부팅해도 매번 안정적으로 재생성됩니다.
+
+BPF가 매력적이지 않다는 뜻은 아닙니다. 다만 v3.31 시점의 operator 자동 감지 로직과 nftables 모드 강제 사이의 간섭 때문에 단일 노드 홈서버 환경에서 굳이 BPF를 끌어들이는 건 위험 대비 보상이 낮다는 게 결론입니다. 노드 수가 늘고 kube-proxy 부담이 실제로 보이는 시점이 오면 다시 검토할 계획입니다.
+
+---
+
+## 4. TLS 인증서 자동화 (cert-manager)
+
+HTTPS를 적용하려면 TLS 인증서가 필요합니다. 서브도메인이 늘어날 때마다 인증서를 따로 발급받으면 번거로우니 `*.movingzero.org`를 통째로 커버하는 **와일드카드 인증서**를 자동으로 받게 구성합니다.
+
+cert-manager 자체는 한 번에 설치할 수 있습니다.
+
+```bash
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
+```
+
+### 4.1 ClusterIssuer
+
+Let's Encrypt를 발급 기관으로 두고 Cloudflare DNS-01 챌린지를 인증 방식으로 쓰는 ClusterIssuer를 만듭니다. 클러스터 어디서든 참조할 수 있는 발급자라는 뜻에서 ClusterIssuer입니다.
+
+```yaml:cluster-issuer.yaml
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: dong5854@gmail.com
+    privateKeySecretRef:
+      name: letsencrypt-prod
+    solvers:
+    - dns01:
+        cloudflare:
+          email: dong5854@gmail.com
+          apiTokenSecretRef:
+            name: cloudflare-api-token-secret
+            key: api-token
+```
+
+Cloudflare API 토큰은 미리 Secret으로 만들어 둬야 합니다. 토큰은 Cloudflare 대시보드에서 **Edit zone DNS** 권한으로 발급합니다.
+
+```bash
+kubectl create secret generic cloudflare-api-token-secret \
+  --from-literal=api-token=YOUR_CLOUDFLARE_API_TOKEN \
+  -n cert-manager
+```
+
+DNS-01 챌린지를 고른 이유는 두 가지입니다. 포트 80을 외부에 열지 않고도 인증이 가능하고 와일드카드 인증서 발급을 지원합니다. ISP가 포트 80을 막아두는 경우가 흔한 가정용 회선에서는 HTTP-01보다 훨씬 안정적입니다.
+
+### 4.2 와일드카드 인증서
+
+`nginx-gateway` 네임스페이스에 와일드카드 인증서를 요청합니다. Gateway가 이 인증서를 참조해 TLS를 종료합니다.
+
+```yaml:gateway-tls-cert.yaml
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: movingzero-wildcard-cert
+  namespace: nginx-gateway
+spec:
+  secretName: movingzero-wildcard-secret
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  privateKey:
+    rotationPolicy: Always
+  dnsNames:
+  - "movingzero.org"
+  - "*.movingzero.org"
+```
+
+`rotationPolicy: Always`는 인증서가 갱신될 때마다 Private Key도 새로 생성합니다. cert-manager 공식 문서가 보안 관점에서 권장하는 설정입니다.
+
+---
+
+## 5. Gateway API 트래픽 라우팅
+
+### 5.1 NGINX Gateway Fabric 설치
+
+Gateway API는 표준 인터페이스만 정의해 두고 실제로 트래픽을 흘리는 구현체는 따로 골라야 합니다. 여기서는 **NGINX Gateway Fabric**을 씁니다. Gateway API CRD와 컨트롤러를 차례로 설치합니다.
+
+```bash
+# Gateway API 표준 CRD
+kubectl kustomize "https://github.com/nginx/nginx-gateway-fabric/config/crd/gateway-api/standard?ref=v2.2.0" | kubectl apply -f -
+
+# NGINX Gateway Fabric 컨트롤러
+helm install ngf oci://ghcr.io/nginx/charts/nginx-gateway-fabric \
+  --create-namespace -n nginx-gateway
+```
+
+### 5.2 Gateway 설정
+
+Gateway는 클러스터의 진입점을 정의합니다. 모든 `*.movingzero.org` 트래픽을 HTTPS로 받고 Gateway에서 SSL을 종료합니다.
+
+```yaml:gateway.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: edge-gw
+  namespace: nginx-gateway
+spec:
+  gatewayClassName: nginx
+  listeners:
+  - name: https
+    protocol: HTTPS
+    port: 443
+    hostname: "*.movingzero.org"
+    tls:
+      mode: Terminate
+      certificateRefs:
+      - name: movingzero-wildcard-secret
+    allowedRoutes:
+      namespaces:
+        from: All
+```
+
+`tls.mode: Terminate`는 Gateway에서 SSL을 풀고 내부 파드로는 HTTP로 전달하라는 뜻입니다. 인증서를 한 곳에서만 관리하면 되니까 새 애플리케이션을 띄울 때마다 인증서를 따로 챙길 필요가 없습니다.
+
+`allowedRoutes.namespaces.from: All`은 어떤 네임스페이스의 HTTPRoute든 이 Gateway를 부모로 삼을 수 있다는 의미입니다. 새 서비스를 추가할 때 Gateway 매니페스트는 건드릴 필요가 없습니다.
+
+### 5.3 HTTPRoute
+
+각 서비스마다 HTTPRoute를 만들어 서브도메인 기반으로 라우팅합니다. ArgoCD 예시는 다음과 같습니다.
+
+```yaml:argocd/base/argocd-httproute.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: argocd-http
+  namespace: argocd
+spec:
+  parentRefs:
+  - name: edge-gw
+    namespace: nginx-gateway
+  hostnames:
+  - argocd.movingzero.org
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: argocd-server
+      port: 80
+```
+
+`parentRefs`는 어느 Gateway에 붙을지 `hostnames`는 어떤 도메인을 받을지 `backendRefs`는 어떤 서비스로 보낼지를 정합니다. 새 서비스를 추가할 때는 이 패턴을 그대로 복사해서 호스트명과 backend만 바꾸면 됩니다.
+
+---
+
+## 6. 애플리케이션 배포 (Kustomize)
+
+실제 서비스인 **Day-to-Us** 프로젝트를 배포합니다. 프론트엔드와 백엔드(Spring Boot)와 데이터베이스(PostgreSQL)로 구성된 3-tier 구조입니다.
+
+### 6.1 디렉토리 구조
+
+매니페스트는 Kustomize의 **Base/Overlay 패턴**으로 환경별 설정을 분리합니다.
+
+```
+day-to-us-backend/
+├── secret.yaml                 # 시크릿 (Git 미추적)
+├── base/
+│   ├── kustomization.yaml      # 리소스 목록과 네임스페이스
+│   ├── deployment.yaml         # 백엔드 Deployment
+│   ├── service.yaml            # 백엔드 Service
+│   ├── httproute.yaml          # API 라우팅 규칙
+│   └── db.yaml                 # PostgreSQL PVC + Service + Deployment
+└── overlays/
+    └── prod/
+        └── kustomization.yaml  # 프로덕션 오버레이
+
+day-to-us-frontend/
+├── base/
+│   ├── kustomization.yaml
+│   ├── deployment.yaml
+│   ├── service.yaml
+│   └── httproute.yaml
+└── overlays/
+    └── prod/
+        └── kustomization.yaml
+```
+
+`kustomization.yaml`은 포함할 리소스와 적용할 네임스페이스를 모아 둔 인덱스입니다.
+
+```yaml:day-to-us-backend/base/kustomization.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - deployment.yaml
+  - service.yaml
+  - httproute.yaml
+  - db.yaml
+
+namespace: day-to-us
+```
+
+### 6.2 PostgreSQL
+
+데이터베이스는 PVC와 Service와 Deployment 세 리소스로 구성합니다.
+
+```yaml:day-to-us-backend/base/db.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: day-to-us
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: db
+  namespace: day-to-us
+spec:
+  selector:
+    app: day-to-us-db
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: day-to-us-db
+  namespace: day-to-us
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: day-to-us-db
+  template:
+    metadata:
+      labels:
+        app: day-to-us-db
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:16-alpine
+        env:
+        - name: POSTGRES_DB
+          value: daytous
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: day-to-us-secret
+              key: POSTGRES_USER
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: day-to-us-secret
+              key: POSTGRES_PASSWORD
+        volumeMounts:
+        - name: postgres-storage
+          mountPath: /var/lib/postgresql/data
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "200m"
+          limits:
+            memory: "1024Mi"
+            cpu: "500m"
+        livenessProbe:
+          tcpSocket:
+            port: 5432
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+        readinessProbe:
+          tcpSocket:
+            port: 5432
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+      volumes:
+      - name: postgres-storage
+        persistentVolumeClaim:
+          claimName: postgres-pvc
+```
+
+설계 포인트는 다음과 같습니다.
+
+- **`storageClassName: local-path`** - 단일 노드라 Rancher의 Local Path Provisioner를 사용합니다. 노드의 로컬 디스크에 PV가 자동으로 생성됩니다. 다중 노드 환경이라면 Longhorn이나 NFS 같은 분산 스토리지를 검토해야 합니다.
+- **`postgres:16-alpine`** - Alpine 기반 이미지로 용량을 줄였습니다.
+- **Secret 참조** - DB 자격 증명은 `day-to-us-secret`에서 읽어옵니다. `secret.yaml`은 `.gitignore`로 Git 추적에서 제외해 두었습니다.
+- **헬스 프로브** - PostgreSQL은 HTTP 엔드포인트가 없으므로 TCP 5432 포트로 liveness/readiness를 봅니다.
+
+### 6.3 백엔드 (Spring Boot)
+
+```yaml:day-to-us-backend/base/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: day-to-us-backend
+  namespace: day-to-us
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: day-to-us-backend
+  template:
+    metadata:
+      labels:
+        app: day-to-us-backend
+    spec:
+      imagePullSecrets:
+      - name: regcred
+      containers:
+      - name: backend
+        image: dong5854/day-to-us-backend:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: SPRING_PROFILES_ACTIVE
+          value: "prod"
+        - name: PROD_DB_URL
+          value: "jdbc:postgresql://db:5432/daytous"
+        - name: PROD_DB_USERNAME
+          valueFrom: { secretKeyRef: { name: day-to-us-secret, key: POSTGRES_USER } }
+        - name: PROD_DB_PASSWORD
+          valueFrom: { secretKeyRef: { name: day-to-us-secret, key: POSTGRES_PASSWORD } }
+        - name: SERVER_FORWARD_HEADERS_STRATEGY
+          value: "native"
+        - name: SERVER_SERVLET_SESSION_COOKIE_SAMESITE
+          value: "none"
+        - name: SERVER_SERVLET_SESSION_COOKIE_SECURE
+          value: "true"
+        # OAuth JWT 등 추가 환경 변수는 Secret에서 valueFrom으로 가져옵니다
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "400m"
+```
+
+눈여겨볼 환경 변수가 몇 개 있습니다.
+
+- **`PROD_DB_URL: jdbc:postgresql://db:5432/daytous`** - DB Service의 이름(`db`)을 호스트로 씁니다. 같은 네임스페이스 안에서는 서비스 이름만으로 DNS 해석이 됩니다.
+- **`SERVER_FORWARD_HEADERS_STRATEGY: native`** - Gateway 뒤에서 동작하므로 `X-Forwarded-*` 헤더를 신뢰하라는 설정입니다. 이게 빠지면 Spring이 리다이렉트 URL을 HTTP로 만들어 무한 리다이렉트 루프가 생깁니다.
+- **`SAMESITE: none`** + **`SECURE: true`** - 프론트엔드(`daytous.movingzero.org`)와 API(`day-to-us-api.movingzero.org`)가 다른 서브도메인이라 크로스 사이트 쿠키 설정이 필요합니다.
+- **`imagePullSecrets: regcred`** - Docker Hub 프라이빗 레지스트리에서 이미지를 가져오기 위한 인증 정보입니다.
+
+백엔드의 Service와 HTTPRoute는 다음과 같습니다.
+
+```yaml:day-to-us-backend/base/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: day-to-us-backend-svc
+  namespace: day-to-us
+spec:
+  selector:
+    app: day-to-us-backend
+  ports:
+    - port: 8080
+      targetPort: 8080
+```
+
+```yaml:day-to-us-backend/base/httproute.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: day-to-us-route
+  namespace: day-to-us
+spec:
+  parentRefs:
+  - name: edge-gw
+    namespace: nginx-gateway
+  hostnames:
+  - "day-to-us-api.movingzero.org"
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: day-to-us-backend-svc
+      port: 8080
+```
+
+`day-to-us-api.movingzero.org`로 들어오는 모든 요청이 백엔드 서비스 8080 포트로 전달됩니다.
+
+### 6.4 프론트엔드
+
+프론트엔드는 빌드된 정적 파일을 Nginx로 서빙하는 단순한 구조입니다. 80 포트에 HTTP GET `/`로 헬스 체크를 합니다.
+
+```yaml:day-to-us-frontend/base/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: day-to-us-frontend
+  namespace: day-to-us
+  labels:
+    app: day-to-us-frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: day-to-us-frontend
+  template:
+    metadata:
+      labels:
+        app: day-to-us-frontend
+    spec:
+      imagePullSecrets:
+      - name: regcred
+      containers:
+        - name: frontend
+          image: dong5854/day-to-us-frontend:latest
+          ports:
+            - containerPort: 80
+          imagePullPolicy: Always
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+```
+
+`imagePullPolicy: Always`로 두면 배포할 때마다 매번 최신 이미지를 받아옵니다. 태그를 `latest`로 고정하고 이미지를 덮어쓰는 운영 방식과 잘 맞습니다.
+
+```yaml:day-to-us-frontend/base/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: day-to-us-frontend-svc
+  namespace: day-to-us
+spec:
+  selector:
+    app: day-to-us-frontend
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+  type: ClusterIP
+```
+
+```yaml:day-to-us-frontend/base/httproute.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: day-to-us-frontend-route
+  namespace: day-to-us
+spec:
+  parentRefs:
+  - name: edge-gw
+    namespace: nginx-gateway
+  hostnames:
+  - "daytous.movingzero.org"
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: day-to-us-frontend-svc
+      port: 80
+```
+
+`daytous.movingzero.org`로 접속하면 프론트엔드 화면이 나타납니다.
+
+---
+
+## 7. 리소스 총정리
+
+홈서버는 물리 자원이 한정돼 있어서 리소스 관리가 중요합니다. 각 워크로드별 할당량을 모아 보면 다음과 같습니다.
+
+| 워크로드 | CPU Request | CPU Limit | Memory Request | Memory Limit |
+|---|---|---|---|---|
+| Frontend | 100m | 200m | 128Mi | 256Mi |
+| Backend | 200m | 400m | 256Mi | 512Mi |
+| PostgreSQL | 200m | 500m | 512Mi | 1024Mi |
+| **합계** | **500m** | **1100m** | **896Mi** | **1792Mi** |
+
+단일 노드에서 모든 워크로드를 굴리기 때문에 레플리카는 전부 1개입니다. 홈서버 용도에서는 고가용성보다 **자원 효율성**이 우선입니다.
+
+---
+
+## 8. 완성된 아키텍처
+
+모든 설정이 들어간 클러스터의 트래픽 흐름은 다음과 같습니다.
+
+1. 사용자가 `daytous.movingzero.org`에 접속합니다.
+2. **Cloudflare DNS**가 홈서버의 현재 공인 IP를 응답합니다.
+3. 공유기의 **포트포워딩**이 443 트래픽을 서버 `192.168.0.100`으로 보냅니다.
+4. **Gateway** (`edge-gw`)가 와일드카드 인증서로 TLS를 종료합니다.
+5. **HTTPRoute**가 호스트명을 보고 적절한 서비스로 라우팅합니다.
+6. 프론트엔드에서 API 호출 시 `day-to-us-api.movingzero.org`를 통해 백엔드에 도달합니다.
+7. 백엔드는 클러스터 내부 DNS(`db:5432`)를 통해 PostgreSQL에 접근합니다.
+
+새 서비스를 추가하고 싶다면 Deployment Service HTTPRoute 세 개의 매니페스트만 만들면 됩니다. Gateway와 인증서 설정은 와일드카드가 자동으로 커버하니 건드릴 필요가 없습니다.
+
+위 흐름에서 2 3번에 해당하는 Cloudflare DNS와 공유기 포트포워딩 쪽은 다음 글에서 더 자세히 다룹니다.
+
+---
+
+## 마치며
+
+단일 노드 클러스터를 부트스트랩하고 Calico CNI를 올리고 cert-manager로 TLS를 자동화하고 Gateway API로 트래픽을 라우팅한 다음 Kustomize로 실제 애플리케이션까지 배포했습니다. BPF 데이터플레인으로 옮기려다 다시 Iptables로 돌아온 삽질도 같이 남겼습니다.
+
+이어지는 글에서는 공유기 너머에서 들어오는 트래픽이 어떻게 안전하게 내부 파드까지 도달하는지를 외부 접속 관점에서 다시 정리한 다음 ArgoCD로 GitOps 파이프라인을 붙이는 과정까지 차례로 풀어 보겠습니다.
+
+---
+
+<p className="text-sm text-gray-500 dark:text-gray-400">
+  이 글은 작업 내용을 AI의 도움을 받아 정리했습니다.
+</p>
