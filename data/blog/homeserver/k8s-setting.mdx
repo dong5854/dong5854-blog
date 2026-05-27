@@ -1,6 +1,6 @@
 ---
 title: '홈서버 구축기 2 - Kubernetes 클러스터 구축과 애플리케이션 배포'
-date: '2026-02-08'
+date: '2026-05-26'
 tags: ['homeserver', 'Kubernetes', 'Calico', 'Gateway API', 'cert-manager']
 draft: false
 summary: 단일 노드 Ubuntu 서버 위에 kubeadm으로 Kubernetes를 올리고 Calico CNI와 Gateway API cert-manager를 배치한 뒤 실제 애플리케이션을 띄우는 과정을 정리합니다.
@@ -30,10 +30,10 @@ summary: 단일 노드 Ubuntu 서버 위에 kubeadm으로 Kubernetes를 올리�
 ```bash
 ip link show eno1
 # 2: eno1: <BROADCAST,MULTICAST,UP,LOWER_UP> ...
-#    link/ether 68:1d:ef:5c:2f:a5 brd ff:ff:ff:ff:ff:ff
+#    link/ether xx:xx:xx:xx:xx:xx brd ff:ff:ff:ff:ff:ff
 ```
 
-여기서 보이는 `68:1d:ef:5c:2f:a5`가 MAC 주소입니다. 이 값을 공유기 예약 화면에 입력하고 원하는 IP를 지정해 두면 됩니다. 저는 `192.168.0.100`에 고정해 두었고 이 주소를 뒤에 나오는 kubeadm init의 advertise 주소로 사용합니다.
+여기 `link/ether` 뒤에 나오는 값이 MAC 주소입니다. 이 값을 공유기 예약 화면에 입력하고 원하는 IP를 지정해 두면 됩니다. 저는 `192.168.0.100`에 고정해 두었고 이 주소를 뒤에 나오는 kubeadm init의 advertise 주소로 사용합니다.
 
 ---
 
@@ -295,13 +295,13 @@ metadata:
 spec:
   acme:
     server: https://acme-v02.api.letsencrypt.org/directory
-    email: dong5854@gmail.com
+    email: you@example.com
     privateKeySecretRef:
       name: letsencrypt-prod
     solvers:
     - dns01:
         cloudflare:
-          email: dong5854@gmail.com
+          email: you@example.com
           apiTokenSecretRef:
             name: cloudflare-api-token-secret
             key: api-token
