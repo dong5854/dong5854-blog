@@ -3,7 +3,7 @@ title: '홈서버 구축기 4 - ArgoCD 계정 분리와 GitHub Actions GitOps �
 date: '2026-05-31'
 tags: ['homeserver', 'ArgoCD', 'GitOps', 'GitHub Actions', 'GHCR', 'CI/CD']
 draft: true
-summary: 홈서버에 올린 ArgoCD에 사람용 admin 계정과 CI/CD 봇 계정을 분리해 만들고 Helm values로 선언적으로 관리합니다. 그 위에 GitHub Actions 기반의 GitOps 파이프라인을 얹어 day-to-us 백엔드 프론트엔드가 자동으로 빌드 푸시 배포되도록 정리합니다.
+summary: 홈서버에 올린 ArgoCD에 사람용 admin 계정과 CI/CD 봇 계정을 분리해 Helm values로 선언적으로 관리합니다. 그리고 매니페스트를 코드 repo와 같은 위치에 두는 모노레포 GitOps 패턴으로 day-to-us 백엔드 프론트엔드가 자동으로 빌드 푸시 배포되도록 정리합니다.
 ---
 
 지난 글들에서 단일 노드 쿠버네티스 클러스터를 띄우고 외부 접속까지 끌고 왔습니다. ArgoCD도 Helm 차트로 설치해 두기는 했지만 사실상 admin 계정 하나로 UI에 한 번 들어가 본 정도였고 **실제 GitOps 파이프라인은 아직 비어 있었습니다**. 이번 글은 그 마지막 한 칸을 채우는 작업을 정리합니다.
@@ -14,11 +14,11 @@ summary: 홈서버에 올린 ArgoCD에 사람용 admin 계정과 CI/CD 봇 계�
 2. **Helm values로 계정 RBAC 선언적으로 관리** - 두 계정 분리와 정책 분할
 3. **ArgoCD CLI 설치와 admin 비밀번호 트러블슈팅**
 4. **사용자 비밀번호 설정과 CI/CD 봇 토큰 발급**
-5. **CI는 GitHub Actions CD는 ArgoCD** - 두 패턴 비교
-6. **매니페스트 GHCR 마이그레이션**
-7. **ArgoCD Application 등록과 auto-sync**
-8. **GitHub Actions 워크플로우** - 빌드부터 매니페스트 commit-back까지
-9. **PAT와 권한 설정**
+5. **CI는 GitHub Actions CD는 ArgoCD** - 역할 분리
+6. **매니페스트를 어디에 둘 것인가** - 분리 repo vs 모노레포
+7. **매니페스트 GHCR 마이그레이션과 Kustomize seam**
+8. **ArgoCD Application 등록과 auto-sync**
+9. **GitHub Actions 워크플로우** - 빌드부터 자기 repo manifest commit-back까지
 10. **남은 일과 TODO**
 
 ---
@@ -40,11 +40,11 @@ ArgoCD의 로컬 계정은 두 가지 능력(capability)을 따로 켤 수 있�
 이번에는 **사람용 admin 계정 하나**와 **CI/CD 전용 봇 계정 하나**를 분리해서 만들었습니다.
 
 - `dong5854` (login) - 사람이 UI로 들어와서 클러스터 상태를 보고 필요시 직접 sync 트리거
-- `cicd-bot` (apiKey) - GitHub Actions에서 매니페스트 push 후 즉시 sync 호출이 필요할 때만 사용
+- `cicd-bot` (apiKey) - 향후 자동화에서 즉시 sync를 호출하고 싶을 때를 대비. 이번 글의 GitOps 파이프라인에서는 사용하지 않음
 
 분리하면 세 가지 이점이 명확해집니다.
 
-1. **감사 로그 분리** - 누가 사람 sync고 누가 CI sync인지 한눈에 보입니다.
+1. **감사 로그 분리** - 누가 사람 sync고 누가 자동화 sync인지 한눈에 보입니다.
 2. **권한 좁히기** - 봇에게는 admin 권한이 필요 없고 특정 프로젝트 sync 권한만 줘도 충분합니다.
 3. **토큰 회수 단위** - 봇 토큰이 유출되면 봇 계정만 비활성화하면 끝납니다. 사람 계정은 그대로 두면 됩니다.
 
@@ -122,15 +122,6 @@ helm upgrade argocd argo/argo-cd \
 ```
 
 `--version`을 명시한 이유는 의도치 않은 차트 업그레이드를 막기 위해서입니다. 차트 메이저 버전이 바뀌면 values 스키마도 바뀔 수 있어서 손에 익은 버전에 고정해 두는 편이 안전합니다.
-
-업그레이드 직후 ConfigMap이 잘 반영됐는지 확인합니다.
-
-```bash
-kubectl -n argocd get cm argocd-cm \
-  -o jsonpath='{.data.accounts\.dong5854}{"\n"}{.data.accounts\.cicd-bot}{"\n"}'
-# login
-# apiKey
-```
 
 ---
 
@@ -219,16 +210,7 @@ argocd account generate-token --account cicd-bot
 > [!WARNING]
 > 토큰을 평문 파일로 홈 디렉토리에 던져 두지 마세요. 저장은 GitHub Actions의 secret(repo/org/environment) 또는 1Password Bitwarden 같은 비밀번호 관리자가 적합합니다. 만에 하나 평문 파일을 만들었다면 secret 등록 직후 `shred -u` 같은 명령으로 안전하게 지웁니다.
 
-토큰이 잘 발급됐는지 확인은 보유 권한 범위 내에서 한 API 호출이면 충분합니다.
-
-```bash
-curl -sS "https://argocd.movingzero.org/api/v1/applications" \
-  -H "Authorization: Bearer $ARGOCD_TOKEN" \
-  | jq '{ok: (.items != null), count: (.items // [] | length)}'
-# {"ok": true, "count": 0}
-```
-
-`unauthenticated` 에러가 아니라 빈 결과가 나오면 봇 계정이 잘 인증되고 권한도 적용되고 있다는 뜻입니다.
+이번 글의 파이프라인 자체에서는 이 토큰을 쓰지 않습니다. 그래도 봇 계정을 미리 만들어 두면 나중에 별도 자동화(예: Slack 슬래시 커맨드로 sync 트리거)가 필요해질 때 토큰만 새로 뽑아 쓰면 되니 권한 좁히기는 미리 해 둘 가치가 있습니다.
 
 ---
 
@@ -241,61 +223,80 @@ curl -sS "https://argocd.movingzero.org/api/v1/applications" \
 | CI | Continuous Integration | 빌드 테스트 이미지 생성 푸시 | **GitHub Actions** Jenkins 등 |
 | CD | Continuous Deployment | 만들어진 이미지를 클러스터에 배포 | **ArgoCD** Flux 등 |
 
-즉 day-to-us 백엔드 코드를 푸시하면 일어나야 하는 일은 두 부분으로 나뉩니다.
+day-to-us 백엔드 코드를 푸시하면 일어나야 하는 일을 두 단계로 나누면 다음과 같습니다.
 
 1. **CI 영역** - GitHub Actions가 코드를 빌드해서 Docker 이미지를 만들고 레지스트리에 푸시
-2. **CD 영역** - ArgoCD가 클러스터의 desired state(매니페스트 레포)와 actual state를 동기화
+2. **CD 영역** - ArgoCD가 클러스터의 desired state(매니페스트)와 actual state를 동기화
 
-문제는 "CI가 만든 새 이미지를 CD가 어떻게 알아채게 할 것인가"입니다. 여기서 두 가지 패턴이 갈립니다.
-
-### 5.1 패턴 A - 순수 GitOps (auto-sync)
-
-```
-[App repo] push
-   ↓ GitHub Actions
-   1. 이미지 빌드 push to GHCR
-   2. 매니페스트 repo의 image tag를 새 값으로 git commit/push
-
-[ArgoCD] auto-sync 활성화 상태
-   ↓
-   3. 매니페스트 repo의 변경 감지 (폴링 또는 webhook)
-   4. 자동으로 cluster에 apply
-```
-
-- CI는 ArgoCD API를 한 번도 호출하지 않습니다. 그냥 매니페스트 레포에 git commit/push 한 줄로 끝
-- 봇 토큰이 필요 없는 대신 매니페스트 레포에 push할 수 있는 PAT가 필요
-- ArgoCD의 본래 철학에 가장 맞는 형태
-
-### 5.2 패턴 B - CI에서 sync 호출
-
-```
-[App repo] push
-   ↓ GitHub Actions
-   1. 이미지 빌드 push
-   2. 매니페스트 repo에 commit/push
-   3. argocd app sync 직접 호출 (cicd-bot 토큰 사용)
-```
-
-- 폴링 지연을 기다리지 않고 즉시 sync 가능
-- CI와 CD가 서로 알아야 해서 결합도 살짝 올라감
-- 봇 토큰이 필요
-
-### 5.3 선택
-
-홈서버 규모에선 **패턴 A**가 충분합니다. ArgoCD는 디폴트로 매니페스트 레포를 3분마다 폴링하는데 이마저도 짧다 싶으면 GitHub webhook을 ArgoCD에 등록하면 즉시 sync가 트리거됩니다.
-
-위에서 만든 `cicd-bot` 계정은 패턴 A에서는 당장 쓸 일이 없지만 나중에 패턴 B나 다른 자동화(예: 별도 sync 트리거 슬랙봇)가 필요해질 때를 대비해 그대로 살려 두기로 했습니다. 권한 자체가 좁게 잡혀 있어 비용이 거의 없습니다.
+여기서 갈리는 질문은 "**CI가 만든 새 이미지를 CD가 어떻게 알아채게 할 것인가**"입니다. ArgoCD는 git을 watch하니까 결국 어딘가의 git에 새 이미지 태그가 commit되어야 합니다. 그 commit을 누가 만들고 어디에 만들지가 다음 절의 주제입니다.
 
 ---
 
-## 6. 매니페스트 GHCR 마이그레이션
+## 6. 매니페스트를 어디에 둘 것인가
 
-패턴 A가 동작하려면 두 가지 준비가 필요합니다.
+GitOps 글들을 보면 거의 항상 **매니페스트 전용 repo**를 별도로 두라고 권합니다.
 
-1. 이미지 레지스트리를 GitHub Actions에서 자연스럽게 푸시할 수 있는 곳(여기선 **GHCR**)으로 옮기기
-2. 매니페스트 레포 안에 **CI가 update할 수 있는 깔끔한 seam**(이미지 태그를 고치는 자리) 만들기
+```
+[app-source repo]      ← 코드만
+[gitops-manifests repo] ← 매니페스트만, 클러스터 전체 desired state
+```
 
-### 6.1 GHCR vs Docker Hub
+이 구조의 장점은 명확합니다.
+
+- 클러스터 전체 상태가 한 repo에 모이므로 "지금 우리 클러스터에 뭐가 떠 있는지" 파악이 빠릅니다.
+- 코드 변경과 배포 변경이 다른 PR로 분리됩니다.
+- 여러 앱이 공유하는 클러스터 인프라(Gateway Cluster Issuer 등)와 자연스럽게 동거합니다.
+
+그래서 처음에는 저도 `homeserver-kubernetes`라는 매니페스트 전용 repo에 day-to-us 매니페스트를 같이 두었습니다. 그런데 **이 구조에는 한 가지 부담스러운 비용**이 따라옵니다.
+
+### 6.1 분리 repo의 비용: PAT
+
+GitHub Actions 워크플로우는 자기 repo에 대해 자동 발급되는 `GITHUB_TOKEN`을 가집니다. 자기 repo에 push도 GHCR에 이미지 push도 다 이 토큰 하나면 됩니다. 그런데 **다른 repo에 push하려면 이 토큰이 안 됩니다**. 별도 PAT(Personal Access Token)를 만들어 두 repo의 secret으로 등록해 두어야 합니다. 토큰 발급 만료 갱신 폭발 반경 같은 운영 부담이 따라오는 셈입니다.
+
+홈서버 1인 운영에서 이 비용이 정당화될 만큼 분리 repo의 장점이 큰가? 결론은 "그렇지 않다"였습니다. 매니페스트를 코드 옆에 두는 **모노레포 GitOps 패턴**으로 갔습니다.
+
+### 6.2 모노레포 GitOps
+
+```
+[day-to-us-backend repo]
+├── src/                       ← 코드
+├── Dockerfile
+└── k8s/                       ← 매니페스트 ← ArgoCD가 여기를 watch
+    ├── base/
+    └── overlays/prod/
+
+[day-to-us-frontend repo]
+├── src/
+├── Dockerfile
+└── k8s/
+    └── ...
+
+[homeserver-kubernetes repo]   ← 클러스터 인프라만 남김
+├── argocd/                    ← ArgoCD Helm values + Application 매니페스트
+├── calico/
+├── cluster-issuer.yaml
+├── gateway.yaml
+└── ...
+```
+
+핵심은 **세 가지**입니다.
+
+1. ArgoCD는 git repo의 **path 단위로 watch**할 수 있습니다. 코드와 매니페스트가 같은 repo에 있어도 `path: k8s/overlays/prod`만 보게 하면 됩니다.
+2. CI가 자기 repo의 매니페스트를 수정하고 commit/push 하면 `GITHUB_TOKEN`만으로 충분합니다. **PAT 불필요**.
+3. **GitHub에는 빌트인 안전장치**가 있어서 `GITHUB_TOKEN`이 만든 commit은 자기 워크플로우를 재트리거하지 않습니다. 무한 루프 걱정 없음.
+
+클러스터 인프라(`argocd`, `gateway`, `calico` 등)는 어느 앱에도 안 묶이는 컴포넌트라 그대로 `homeserver-kubernetes`에 남깁니다. **앱과 인프라가 정확히 owner가 다른 두 종류의 리소스**이므로 repo가 다른 게 오히려 자연스럽습니다.
+
+---
+
+## 7. 매니페스트 GHCR 마이그레이션과 Kustomize seam
+
+모노레포에서 ArgoCD GitOps가 동작하려면 두 가지 준비가 필요합니다.
+
+1. 이미지 레지스트리를 GitHub Actions에서 자연스럽게 푸시할 수 있는 곳(**GHCR**)으로 옮기기
+2. 매니페스트 안에 **CI가 update할 수 있는 깔끔한 seam**(이미지 태그를 고치는 한 자리) 만들기
+
+### 7.1 GHCR vs Docker Hub
 
 | | GHCR (`ghcr.io`) | Docker Hub |
 |---|---|---|
@@ -305,26 +306,26 @@ curl -sS "https://argocd.movingzero.org/api/v1/applications" \
 | 익명 pull rate limit | 거의 없음 | 6시간당 100건 |
 | 통합도 | GitHub repo와 같은 계정 아래 묶임 | 별개 |
 
-GitHub Actions로 자동화한다면 **GHCR을 쓰는 게 거의 모든 면에서 편합니다**. 개인 프로젝트면 무조건 GHCR을 권장합니다.
+GitHub Actions로 자동화한다면 **GHCR을 쓰는 게 거의 모든 면에서 편합니다**.
 
-### 6.2 base 매니페스트의 이미지 주소 교체
+### 7.2 base 매니페스트의 이미지 주소 교체
 
 기존에 `dong5854/day-to-us-backend:latest` (Docker Hub 디폴트)로 적어 두었던 부분을 `ghcr.io/dong5854/day-to-us-backend:latest`로 교체합니다.
 
-```yaml:day-to-us-backend/base/deployment.yaml
+```yaml:k8s/base/deployment.yaml
 spec:
   containers:
   - name: backend
     image: ghcr.io/dong5854/day-to-us-backend:latest
 ```
 
-### 6.3 overlay에서 image 태그 분리
+### 7.3 overlay에서 image 태그 분리
 
 GitOps에서 가장 흔한 안티패턴이 **base 매니페스트의 이미지 태그를 매번 CI가 직접 수정하는 것**입니다. base 파일은 환경이 다르면 다른 값을 갖고 싶어지는데 거기에 환경별로 다른 태그까지 박아 두면 base의 본래 의미(공유 가능한 베이스 정의)가 무너집니다.
 
 Kustomize에는 이걸 위한 **`images:` 필드**가 있습니다. overlay 단계에서 base 이미지의 이름을 매핑해서 태그(또는 다이제스트)만 교체할 수 있게 해 줍니다.
 
-```yaml:day-to-us-backend/overlays/prod/kustomization.yaml
+```yaml:k8s/overlays/prod/kustomization.yaml
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
@@ -340,9 +341,9 @@ images:
 
 ---
 
-## 7. ArgoCD Application 등록과 auto-sync
+## 8. ArgoCD Application 등록과 auto-sync
 
-ArgoCD가 day-to-us 앱을 관리하게 하려면 클러스터에 `Application` CR을 만들어 줘야 합니다. 이 매니페스트도 GitOps로 관리하기 위해 ArgoCD 자체의 Kustomize base에 넣었습니다.
+ArgoCD가 day-to-us 앱을 관리하게 하려면 클러스터에 `Application` CR을 만들어 줘야 합니다. 이 매니페스트는 인프라 성격이라 `homeserver-kubernetes` repo의 ArgoCD base에 둡니다.
 
 ```yaml:argocd/base/application-day-to-us-backend.yaml
 apiVersion: argoproj.io/v1alpha1
@@ -355,9 +356,9 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/dong5854/homeserver-kubernetes.git
+    repoURL: https://github.com/dong5854/day-to-us-backend.git
     targetRevision: main
-    path: day-to-us-backend/overlays/prod
+    path: k8s/overlays/prod
   destination:
     server: https://kubernetes.default.svc
     namespace: day-to-us
@@ -372,7 +373,8 @@ spec:
 
 각 필드의 의미를 한 번 짚고 갑니다.
 
-- `source.path` - 매니페스트 레포에서 어떤 디렉토리를 sync 대상으로 삼을지. 여기선 prod overlay
+- `source.repoURL` - **코드 repo 자체**. 모노레포 패턴이라 매니페스트도 여기 있음
+- `source.path` - 그 repo 안에서 어떤 디렉토리만 sync 대상으로 삼을지. 여기선 `k8s/overlays/prod`
 - `destination` - 어느 클러스터의 어느 네임스페이스에 배포할지. `kubernetes.default.svc`는 ArgoCD가 돌고 있는 자기 자신 클러스터를 의미
 - `syncPolicy.automated.prune` - git에서 사라진 리소스를 클러스터에서도 제거
 - `syncPolicy.automated.selfHeal` - 누군가 클러스터에서 직접 리소스를 수정해도 매니페스트 상태로 되돌림
@@ -400,12 +402,9 @@ kubectl apply -k argocd/overlays/prod
 
 ---
 
-## 8. GitHub Actions 워크플로우
+## 9. GitHub Actions 워크플로우
 
-CI 쪽 워크플로우는 **두 잡(job)으로 나누었습니다**.
-
-1. `build` - 코드 빌드 + Docker 이미지 빌드 + GHCR push (short-SHA 태그)
-2. `update-manifest` - 매니페스트 레포 클론 + overlay의 `newTag`를 새 SHA로 수정 + commit/push
+모노레포 패턴에서는 CI가 **자기 repo의 매니페스트를 직접 고치고** 같은 repo에 commit하면 끝입니다. 워크플로우 한 잡 안에서 빌드 푸시 매니페스트 갱신 commit-back을 다 처리합니다.
 
 ```yaml:.github/workflows/docker-publish.yml
 name: Build and Deploy
@@ -413,22 +412,21 @@ name: Build and Deploy
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'k8s/overlays/**/kustomization.yaml'
   workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: dong5854/day-to-us-backend
-  MANIFEST_REPO: dong5854/homeserver-kubernetes
-  MANIFEST_FILE: day-to-us-backend/overlays/prod/kustomization.yaml
+  MANIFEST_FILE: k8s/overlays/prod/kustomization.yaml
 
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       packages: write
-    outputs:
-      tag: ${{ steps.meta.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
 
@@ -464,40 +462,35 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-  update-manifest:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          repository: ${{ env.MANIFEST_REPO }}
-          token: ${{ secrets.MANIFEST_PAT }}
-
-      - name: Update image tag
+      - name: Update image tag in overlay
         env:
-          TAG: ${{ needs.build.outputs.tag }}
+          TAG: ${{ steps.meta.outputs.tag }}
         run: |
           yq -i '.images[0].newTag = strenv(TAG)' "$MANIFEST_FILE"
 
-      - name: Commit and push
+      - name: Commit and push manifest
         env:
-          TAG: ${{ needs.build.outputs.tag }}
+          TAG: ${{ steps.meta.outputs.tag }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "$MANIFEST_FILE"
           git diff --staged --quiet && exit 0
-          git commit -m "ci(day-to-us-backend): bump image to $TAG"
+          git commit -m "ci: 이미지 태그를 $TAG 로 갱신"
           git push
 ```
 
-### 8.1 디테일 몇 가지
+### 9.1 디테일 몇 가지
+
+**`paths-ignore`로 자기 commit 제외** - 워크플로우가 자기 자신을 push해 무한 루프를 만드는 걸 막는 1차 방어선입니다. 사실 `GITHUB_TOKEN`으로 만든 commit은 GitHub이 알아서 워크플로우 재트리거를 막아 주지만 그래도 명시적으로 적어 두면 의도가 분명합니다.
+
+**`permissions: contents: write`** - 워크플로우가 자기 repo에 commit/push할 권한이 필요합니다. 디폴트는 read-only라서 명시적으로 켜 줘야 합니다.
+
+**`actions/checkout@v4` 기본 사용** - 분리 repo였다면 `repository:`, `token:` 옵션을 줘야 했지만 자기 repo면 옵션 없이도 자동으로 `GITHUB_TOKEN`을 credential helper로 설정해 줍니다. 이후의 `git push`는 그냥 됩니다.
 
 **short-SHA 태깅** - `${GITHUB_SHA::7}`로 7자리 short hash를 태그로 씁니다. 같은 코드는 같은 태그를 받아 멱등하고 다른 코드는 항상 다른 태그를 받습니다. `:latest`도 같이 푸시해 두면 디버깅용으로 편합니다.
 
 **`GITHUB_TOKEN`으로 GHCR 인증** - GitHub Actions가 자동 발급하는 토큰입니다. workflow의 `permissions: packages: write`만 켜 주면 GHCR에 push할 수 있습니다. 별도 secret 등록이 필요 없습니다.
-
-**`MANIFEST_PAT` secret** - 매니페스트 레포에 push하려면 별도 PAT가 필요합니다. `GITHUB_TOKEN`은 워크플로우가 돌고 있는 레포의 권한만 갖기 때문에 다른 레포에는 쓸 수 없습니다.
 
 **`yq`로 in-place 수정** - `yq -i '.images[0].newTag = strenv(TAG)' "$MANIFEST_FILE"` 한 줄로 overlay의 태그 필드만 깔끔하게 교체됩니다. `sed`로도 가능하지만 파일 구조가 조금 바뀌면 매번 깨지기 쉬워 yq가 안전합니다.
 
@@ -507,50 +500,20 @@ jobs:
 
 ---
 
-## 9. PAT와 권한 설정
-
-가장 흔한 함정이 PAT입니다. 매니페스트 레포 commit-back이 권한 문제로 실패하는 경우가 많습니다.
-
-### 9.1 fine-grained PAT 발급
-
-https://github.com/settings/personal-access-tokens/new 에서 발급합니다.
-
-| 항목 | 값 |
-|---|---|
-| Token name | `homeserver-kubernetes-manifest-update` |
-| Expiration | 90일 또는 1년 |
-| Resource owner | `dong5854` |
-| Repository access | Only select repositories → `dong5854/homeserver-kubernetes` |
-| Permissions → Contents | **Read and write** |
-| Permissions → Metadata | Read-only (자동) |
-
-발급된 토큰을 양쪽 소스 레포(`day-to-us-backend`, `day-to-us-frontend`)에 모두 `MANIFEST_PAT`라는 이름의 repository secret으로 등록합니다.
-
-> [!WARNING]
-> Classic PAT 대신 fine-grained PAT를 사용하세요. classic은 계정 단위로 권한이 광범위하게 묶이지만 fine-grained는 특정 레포 + 특정 권한으로 좁혀집니다. 토큰 한 장이 유출됐을 때 폭발 반경이 다릅니다.
-
-### 9.2 GHCR 이미지 visibility
-
-GHCR은 첫 푸시 시 이미지를 **private으로 만듭니다**. cluster가 private GHCR 이미지를 pull하려면 imagePullSecret(`regcred`)에 GHCR 인증 정보를 넣어 줘야 합니다. 개인 프로젝트면 **public으로 전환**하는 게 가장 간단합니다.
-
-https://github.com/dong5854?tab=packages 에서 해당 패키지로 들어가 우측 ⚙️ Package settings → Change visibility → Public.
-
----
-
 ## 10. 남은 일과 TODO
 
 여기까지가 이번 작업의 핵심이지만 실제 production에 돌리기 전에 몇 가지 작업이 남아 있습니다. 다음 글에서 이어서 정리할 예정입니다.
 
-- [ ] **fine-grained PAT 발급** 후 양쪽 소스 레포에 `MANIFEST_PAT` secret 등록
-- [ ] **dev → main 머지** - 백엔드/프런트엔드 두 레포 모두 dev에 누적된 작업이 main에 안 올라가 있어 첫 CI 트리거가 안 됨. 기존 PR 기반 워크플로우대로 GitHub UI 또는 `gh pr create`로 PR 만들고 머지
+- [ ] **dev → main 머지** - 백엔드/프론트엔드 두 repo 모두 dev에 누적된 작업이 main에 안 올라가 있어 첫 CI 트리거가 안 됨. 기존 PR 기반 워크플로우대로 GitHub UI 또는 `gh pr create`로 PR 만들고 머지
 - [ ] **GHCR 이미지 public 전환** - 첫 푸시 후 visibility 변경. 안 하면 cluster pull 실패
 - [ ] **`kubectl apply -k argocd/overlays/prod`** - Application CR 등록. 이 한 번만 손으로
-- [ ] **기존 Docker Hub secret 정리** - 양쪽 레포의 `DOCKER_USERNAME` `DOCKER_PASSWORD`는 더 이상 쓰지 않음
+- [ ] **기존 Docker Hub secret 정리** - 양쪽 repo의 `DOCKER_USERNAME` `DOCKER_PASSWORD`는 더 이상 쓰지 않음
 - [ ] **regcred 정리** - cluster의 `imagePullSecrets: regcred`는 Docker Hub용. public GHCR이면 secret 자체가 필요 없어 deployment에서 제거 가능
-- [ ] **ArgoCD webhook 연결** - 매니페스트 레포의 GitHub webhook을 `https://argocd.movingzero.org/api/webhook`으로 추가하면 폴링 3분을 기다리지 않고 즉시 sync 트리거
+- [ ] **ArgoCD webhook 연결** - 각 코드 repo의 GitHub webhook을 `https://argocd.movingzero.org/api/webhook`으로 추가하면 폴링 3분을 기다리지 않고 즉시 sync 트리거
 - [ ] **PR-level CI 분리** - 지금 워크플로우는 main push에서만 도는데 PR에서 빌드 검증만 따로 도는 워크플로우를 추가하면 머지 전 안전망이 생김
 - [ ] **이미지 verify** - cosign 같은 도구로 GHCR 이미지에 서명을 붙이고 ArgoCD에서 unsigned 이미지는 sync 거부하도록 강화
 - [ ] **알림** - 배포 성공/실패를 Discord나 Slack에 흘려 보내는 ArgoCD Notifications 설정
+- [ ] **Secret 관리** - `secret.yaml`을 평문으로 들고 다니지 말고 Sealed Secrets 혹은 External Secrets Operator로 git에 올릴 수 있는 형태로 전환
 
 ### 트러블슈팅 메모
 
@@ -558,13 +521,13 @@ https://github.com/dong5854?tab=packages 에서 해당 패키지로 들어가 �
 
 - `argocd login`이 `transport is closing`으로 실패하면 거의 항상 `--grpc-web` 누락
 - `Invalid username or password` 시 `argocd-initial-admin-secret`의 값이 stale일 가능성. `admin.passwordMtime` 확인
-- 매니페스트 레포 push가 `Permission to ... denied to ...`로 실패하면 fine-grained PAT의 contents write 권한이나 resource scope 확인. SAML SSO 적용된 조직 레포라면 토큰 SSO 인증도 필요할 수 있음
 - Kustomize의 `bases:` 키는 deprecated. `resources:`로 마이그레이션
+- Helm이 owned한 ConfigMap에 Kustomize patch 시도하지 말 것. 차트의 values 키 활용
 
 ---
 
 ## 마치며
 
-이번 글에서는 ArgoCD에 두 종류의 계정을 분리해서 만들고 GitHub Actions가 GHCR에 이미지를 푸시한 뒤 매니페스트 레포에 commit-back을 해 ArgoCD가 자동으로 sync하게 만드는 GitOps 파이프라인을 정리했습니다. 핵심은 "CI는 GitHub Actions, CD는 ArgoCD"이고 이 둘을 잇는 접착제는 **매니페스트 레포의 git commit 자체**라는 점이었습니다.
+이번 글에서는 ArgoCD에 두 종류의 계정을 분리해서 만들고 매니페스트를 코드 repo와 같은 위치(`k8s/` 폴더)에 두는 모노레포 GitOps 패턴으로 GitHub Actions가 자기 repo 안에서 빌드 푸시 매니페스트 갱신을 모두 처리하게 했습니다. 핵심은 "CI는 GitHub Actions, CD는 ArgoCD"라는 역할 분리와 **분리 repo로 가서 PAT를 운영하느니 모노레포로 가서 GITHUB_TOKEN 하나로 끝내는 게 1인 운영에는 더 깔끔하다**는 판단이었습니다.
 
 [홈서버 구축기 3](#)까지가 "외부에서 들어올 수 있는 클러스터"였다면 이번 글로 비로소 "코드만 push하면 자동으로 배포되는 클러스터"가 됩니다. 다음 글에서는 TODO에 남긴 webhook 연동과 Discord 알림 그리고 cosign 서명 검증까지 묶어 운영성을 한 단계 끌어올리는 작업을 정리할 예정입니다.
