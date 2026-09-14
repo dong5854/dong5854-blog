@@ -1,0 +1,434 @@
+---
+title: 'YARN Capacity Scheduler 실전 가이드 — Fair vs Capacity, 주요 설정, 트러블슈팅'
+date: '2026-09-08'
+tags: ['spark', 'aws', 'emr', 'yarn', 'performance', 'ai generated']
+draft: false
+summary: AWS EMR에서 YARN Fair/Capacity Scheduler 차이를 비교하고, maximum-am-resource-percent·user-limit-factor·Preemption 등 실전 설정과 YARN UI 트러블슈팅 방법까지 정리한다.
+---
+
+---
+이하 AI 작성 초안
+
+# 들어가며
+
+Spark 잡을 AWS EMR 위에서 돌리다 보면, 여러 팀이나 여러 잡이 동시에 클러스터를 공유하는 상황이 자주 생긴다.
+이 때 어떤 잡이 얼마나 리소스를 가져갈지를 결정하는 것이 **YARN 스케줄러**다.
+
+YARN이 제공하는 대표적인 스케줄러는 두 가지다:
+
+- **Capacity Scheduler** — Hadoop 진영의 기본값, 조직/팀 단위 리소스 보장
+- **Fair Scheduler** — 공정한 리소스 분배, 동적 할당에 강함
+
+두 스케줄러의 이름만 보면 "Fair가 더 공평하니 더 좋은 거 아닌가?" 싶지만, 실제로는 **워크로드 성격에 따라 선택지가 달라진다.**
+
+> [!NOTE]
+> AWS EMR은 기본적으로 **YARN Capacity Scheduler**를 사용한다. Fair Scheduler로 변경하려면 EMR 클러스터 생성 시 또는 bootstrap action으로 별도 설정이 필요하다.
+
+---
+
+# Capacity Scheduler
+
+## 개념
+
+Capacity Scheduler는 클러스터 리소스를 **Queue** 단위로 미리 나누어 보장하는 방식이다.
+각 큐에는 최소 용량(capacity)과 최대 용량(maxCapacity)이 퍼센트(%)로 정의되며, 큐에 속한 잡들은 그 안에서만 리소스를 경쟁한다.
+
+```
+root
+├── queue-a (capacity: 40%, maxCapacity: 60%)
+└── queue-b (capacity: 60%, maxCapacity: 100%)
+```
+
+- `queue-a`는 최소 40%가 보장되며, `queue-b`가 여유 있을 때 최대 60%까지 빌릴 수 있다.
+- 반대로 `queue-b`가 바쁘면 빌려줬던 리소스를 회수한다.
+
+## 핵심 특징
+
+| 특징 | 설명 |
+|---|---|
+| **큐 단위 보장** | 특정 팀/서비스가 최소 리소스를 항상 보장받음 |
+| **계층적 큐** | 큐 안에 서브 큐를 만들어 조직 구조를 반영 가능 |
+| **Preemption** | 설정 시, 최소 용량 미달인 큐를 위해 다른 큐의 컨테이너를 강제 종료 가능 |
+| **큐 내부 스케줄링** | 큐 내부에서는 FIFO 또는 Fair 방식 선택 가능 |
+
+## 언제 쓰나
+
+- 팀/서비스별로 **SLA가 다를 때** (A팀 잡은 반드시 n% 리소스 보장)
+- 비용 예측이 중요한 **배치 파이프라인** 환경
+- 우선순위가 명확히 나뉜 **멀티 테넌트** 클러스터
+
+---
+
+# Fair Scheduler
+
+## 개념
+
+Fair Scheduler는 실행 중인 잡들이 **동등하게 리소스를 나눠 가지는** 방식이다.
+잡이 1개면 클러스터 전체를 쓰다가, 잡이 2개가 되면 각 50%씩, 3개가 되면 각 33%씩 — 실시간으로 자동 재분배된다.
+
+큐 개념도 있지만, 기본 동작은 **현재 실행 중인 잡 수를 기준으로 균등 분배**한다.
+
+## 핵심 특징
+
+| 특징 | 설명 |
+|---|---|
+| **동적 분배** | 실행 잡 수에 따라 자동으로 리소스 재분배 |
+| **빠른 응답** | 작은 잡이 들어와도 금방 리소스를 받아 시작 가능 |
+| **Preemption** | 최소 할당량 미달 앱을 위해 선제적 리소스 회수 가능 |
+| **가중치(weight)** | 큐/잡에 가중치를 부여해 불균등 분배도 가능 |
+
+## 언제 쓰나
+
+- 잡의 크기와 우선순위가 **예측 불가능한 인터랙티브 쿼리** 환경
+- 짧은 잡과 긴 잡이 섞여 있어 **starvation(기아 현상)을 방지**해야 할 때
+- 클러스터 유휴 리소스를 **최대한 활용**하고 싶을 때
+
+---
+
+# 비교 요약
+
+| 항목 | Capacity Scheduler | Fair Scheduler |
+|---|---|---|
+| **리소스 배분 단위** | 큐(Queue) 기반 고정 배분 | 잡(App) 기반 동적 배분 |
+| **리소스 보장** | 큐별 최소 용량 보장 | 잡별 균등 배분 (가중치 조정 가능) |
+| **리소스 탄력성** | 여유 큐의 리소스 빌려쓰기 가능 | 항상 실시간 재분배 |
+| **설정 복잡도** | 큐 계층 설계 필요, 다소 복잡 | 상대적으로 단순 |
+| **대기 중 잡 처리** | 큐 용량 초과 시 큐잉(대기) | 리소스 생기는 즉시 분배 |
+| **적합한 환경** | 팀별 SLA, 배치 파이프라인 | 혼합 워크로드, 인터랙티브 쿼리 |
+| **AWS EMR 기본값** | ✅ 기본 제공 | 별도 설정 필요 |
+
+---
+
+# EMR에서의 실제 적용
+
+> [!NOTE]
+> (실제 겪었던 문제와 해결법을 여기에 추가해 주세요.)
+
+## Capacity Scheduler 설정 예시 (EMR)
+
+EMR 클러스터의 `capacity-scheduler.xml`을 수정하거나, EMR 설정 파라미터로 주입할 수 있다.
+
+```xml
+<property>
+  <name>yarn.scheduler.capacity.root.queues</name>
+  <value>default,high-priority</value>
+</property>
+<property>
+  <name>yarn.scheduler.capacity.root.default.capacity</name>
+  <value>40</value>
+</property>
+<property>
+  <name>yarn.scheduler.capacity.root.high-priority.capacity</name>
+  <value>60</value>
+</property>
+```
+
+## Fair Scheduler로 전환 (EMR)
+
+EMR에서 Fair Scheduler를 사용하려면 `yarn-site.xml`에서 스케줄러 클래스를 변경해야 한다.
+
+```xml
+<property>
+  <name>yarn.resourcemanager.scheduler.class</name>
+  <value>org.apache.hadoop.yarn.server.resourcemanager.scheduler.fair.FairScheduler</value>
+</property>
+```
+
+> [!WARNING]
+> 실행 중인 클러스터에서 스케줄러를 교체하면 ResourceManager 재시작이 필요하며, 실행 중인 잡이 영향을 받을 수 있다. EMR에서는 클러스터 생성 시 설정하는 것을 권장한다.
+
+# Capacity Scheduler 실전 — maximum-am-resource-percent
+
+Capacity Scheduler를 사용하다 보면 반드시 한 번은 마주치는 설정이 있다.
+잡을 제출했는데 `ACCEPTED` 상태에서 오랫동안 꿈쩍 않는다면 이 설정이 원인일 가능성이 높다.
+
+## ApplicationMaster(AM)란?
+
+Spark 잡이 YARN 위에서 실행될 때, 가장 먼저 **ApplicationMaster 컨테이너**가 클러스터에 뜬다.
+AM은 잡의 "관제탑" 역할로, Executor 컨테이너 요청 및 관리, ResourceManager와 리소스 협상을 담당한다.
+
+**AM이 먼저 자리를 잡아야 그 뒤에 Executor들이 뜰 수 있다.**
+AM 컨테이너를 위한 자리가 없으면 잡 전체가 시작조차 못한다.
+
+## maximum-am-resource-percent 란?
+
+```xml
+<property>
+  <name>yarn.scheduler.capacity.maximum-am-resource-percent</name>
+  <value>0.1</value>
+</property>
+```
+
+클러스터 전체 리소스 중 **AM 컨테이너가 차지할 수 있는 최대 비율**을 제한하는 설정이다.
+
+- 기본값: `0.1` (10%)
+- 클러스터 총 메모리의 10%만 AM 컨테이너로 사용 가능
+- 나머지 90%는 Executor 등 실제 작업 컨테이너가 사용
+
+| 클러스터 총 메모리 | maximum-am-resource-percent | AM에 쓸 수 있는 메모리 |
+|---|---|---|
+| 100 GB | 0.1 (10%) | 10 GB |
+| 100 GB | 0.2 (20%) | 20 GB |
+
+Spark AM 컨테이너가 기본적으로 `spark.yarn.am.memory` (기본 512MB) + overhead를 사용한다면,
+10 GB 한도에서 동시에 약 **15~18개**의 AM만 뜰 수 있다. 이를 초과하면 **ACCEPTED 상태에서 pending**이 발생한다.
+
+## 주로 문제가 생기는 패턴
+
+**패턴 1: 짧은 잡이 대량으로 동시 제출될 때**
+파이프라인에서 여러 작은 Spark 잡이 동시에 트리거되면 각 잡마다 AM이 1개씩 필요해 한도에 빠르게 걸린다.
+
+**패턴 2: AM 메모리를 크게 설정했을 때**
+
+```python
+spark.conf.set("spark.yarn.am.memory", "4g")
+```
+
+AM 메모리를 4GB로 설정하면, 10GB 한도에서는 단 2~3개의 잡만 동시에 AM을 띄울 수 있다.
+
+**패턴 3: 큐별 설정이 없을 때**
+큐에 별도 설정이 없으면 root 큐의 전역 설정을 상속한다. 여러 팀이 같은 큐를 공유하면 서로의 잡이 AM 한도를 잡아먹는다.
+
+> [!NOTE]
+> (실제로 어떤 패턴에서 문제가 발생했는지 여기에 추가해 주세요.)
+
+## 해결 방법
+
+**방법 1: maximum-am-resource-percent 값 올리기**
+
+```xml
+<property>
+  <name>yarn.scheduler.capacity.maximum-am-resource-percent</name>
+  <value>0.25</value>
+</property>
+```
+
+> [!WARNING]
+> 이 값을 1.0으로 설정하면 모든 리소스가 AM에 사용될 수 있어, Executor가 뜰 자리가 없어지는 역설적 상황이 생긴다. 일반적으로 0.2~0.3 수준이 적절하다.
+
+**방법 2: 큐별로 개별 설정**
+
+```xml
+<property>
+  <name>yarn.scheduler.capacity.root.high-priority.maximum-am-resource-percent</name>
+  <value>0.3</value>
+</property>
+```
+
+**방법 3: AM 메모리 줄이기**
+
+```python
+spark.conf.set("spark.yarn.am.memory", "512m")
+spark.conf.set("spark.yarn.am.memoryOverhead", "256m")
+```
+
+> [!TIP]
+> AM은 Executor에 비해 실제 연산을 거의 하지 않는다. 대부분의 경우 512MB~1GB로 충분하다.
+> Driver 메모리(`spark.driver.memory`)와 혼동하지 않도록 주의한다.
+
+**방법 4: 잡 동시 실행 수 제한**
+
+YARN 설정 변경 없이 파이프라인 레벨에서 동시 실행 Spark 잡 수를 제어하는 방법.
+예: Airflow에서 pool을 활용해 동시 실행 수 상한을 두는 방식.
+
+## EMR에서 적용하기
+
+```json
+[
+  {
+    "Classification": "capacity-scheduler",
+    "Properties": {
+      "yarn.scheduler.capacity.maximum-am-resource-percent": "0.2"
+    }
+  }
+]
+```
+
+> [!WARNING]
+> 실행 중인 클러스터에서 변경하면 ResourceManager 재시작이 필요하다. 가능하면 클러스터 생성 시 설정하거나 유지보수 윈도우에 적용한다.
+
+> [!NOTE]
+> (EMR에서 실제로 이 설정을 변경한 방법, 적용 전후 차이 등을 여기에 추가해 주세요.)
+
+# Capacity Scheduler 실전 — user-limit-factor / minimum-user-limit-percent
+
+`maximum-am-resource-percent`가 "AM 컨테이너의 총량"을 제한한다면,
+이 두 설정은 **큐 안에서 한 사용자(user)가 얼마나 리소스를 독점할 수 있는지**를 제어한다.
+
+## minimum-user-limit-percent
+
+```xml
+<property>
+  <name>yarn.scheduler.capacity.root.default.minimum-user-limit-percent</name>
+  <value>25</value>
+</property>
+```
+
+큐 리소스 중 **한 사용자가 받을 수 있는 최소 보장 비율**이다.
+동시에 접근하는 사용자 수에 따라 실제 할당량이 동적으로 결정된다.
+
+| 큐 용량 | minimum-user-limit-percent | 동시 사용자 수 | 사용자당 최대 할당 |
+|---|---|---|---|
+| 100% | 25% | 1명 | 100% (독점 가능) |
+| 100% | 25% | 2명 | 50%씩 |
+| 100% | 25% | 4명 | 25%씩 |
+| 100% | 25% | 5명 이상 | 25% (하한 보장) |
+
+사용자가 적을 때는 더 많이 쓸 수 있고, 사용자가 많아지면 최소 비율로 수렴한다.
+
+## user-limit-factor
+
+```xml
+<property>
+  <name>yarn.scheduler.capacity.root.default.user-limit-factor</name>
+  <value>1</value>
+</property>
+```
+
+**한 사용자가 큐 할당량의 몇 배까지 리소스를 쓸 수 있는지**를 결정하는 승수(multiplier)다.
+
+- 기본값: `1` → 큐 용량(capacity)의 최대 1배까지만 사용 가능
+- `2`로 설정 시 → 큐 용량의 2배까지 빌려 쓸 수 있음 (다른 큐가 여유 있을 때)
+
+> [!WARNING]
+> `user-limit-factor`를 너무 높게 설정하면 한 사용자의 잡이 큐 용량을 훨씬 초과해 다른 사용자의 잡이 리소스를 받지 못하는 상황이 생긴다.
+> 일반적으로 1~2 범위가 안전하다.
+
+> [!NOTE]
+> (실제로 특정 사용자/팀의 잡이 리소스를 독점해 문제가 생겼던 경험이 있다면 여기에 추가해 주세요.)
+
+---
+
+# Capacity Scheduler 실전 — Preemption
+
+Preemption(선점)은 YARN이 **리소스 부족 상태인 큐를 위해 다른 큐의 실행 중인 컨테이너를 강제로 종료**시키는 기능이다.
+비어 있는 클러스터 리소스가 없을 때도 최소 용량을 보장할 수 있게 해주는 강력한 도구지만, **잘못 설정하면 멀쩡히 실행 중인 잡이 갑자기 죽는다.**
+
+## 동작 방식
+
+```
+1. 큐 A가 capacity(최소 보장량) 이하로 떨어짐
+2. RM이 큐 B의 컨테이너에 "종료 예고(grace period)" 전송
+3. grace period 내에 자발적으로 반환하지 않으면 강제 kill
+4. 회수된 리소스를 큐 A에 배분
+```
+
+## 주요 설정
+
+```xml
+<!-- Preemption 전체 활성화 -->
+<property>
+  <name>yarn.resourcemanager.scheduler.monitor.enable</name>
+  <value>true</value>
+</property>
+<property>
+  <name>yarn.resourcemanager.scheduler.monitor.policies</name>
+  <value>org.apache.hadoop.yarn.server.resourcemanager.monitor.capacity.ProportionalCapacityPreemptionPolicy</value>
+</property>
+
+<!-- 컨테이너 강제 kill 허용 여부 (false면 자발적 반환만 유도) -->
+<property>
+  <name>yarn.resourcemanager.preemption.observe_only</name>
+  <value>false</value>
+</property>
+
+<!-- grace period: 자발적 반환 대기 시간 (ms) -->
+<property>
+  <name>yarn.resourcemanager.preemption.wait-time-before-kill</name>
+  <value>15000</value>
+</property>
+```
+
+## 큐 단위 Preemption 비활성화
+
+특정 큐의 잡은 절대 강제 종료되면 안 된다면 큐별로 끌 수 있다.
+
+```xml
+<property>
+  <name>yarn.scheduler.capacity.root.critical-queue.disable_preemption</name>
+  <value>true</value>
+</property>
+```
+
+> [!WARNING]
+> Spark 잡은 Preemption으로 Executor가 kill되면 해당 task를 재시도하지만, Driver가 kill되면 **잡 전체가 실패**한다.
+> Driver 컨테이너가 올라가는 큐에는 Preemption을 비활성화하거나 `observe_only` 모드로 운영하는 것을 권장한다.
+
+> [!NOTE]
+> (Preemption으로 인해 잡이 예고 없이 실패했던 경험이나, 이를 감지한 방법을 여기에 추가해 주세요.)
+
+---
+
+# YARN UI로 스케줄러 문제 진단하기
+
+잡이 이상하게 느리거나, ACCEPTED에서 멈추거나, 갑자기 실패한다면 YARN ResourceManager UI가 첫 번째 진단 도구다.
+
+## 접근 방법 (EMR)
+
+EMR 콘솔 → 클러스터 선택 → **Application user interfaces** 탭 → **ResourceManager** 링크
+
+또는 SSH 터널을 통해 직접 접근:
+
+```bash
+# EMR 마스터 노드에 SSH 포트 포워딩
+ssh -i your-key.pem -N -L 8088:localhost:8088 hadoop@<master-dns>
+# 브라우저에서 http://localhost:8088 접속
+```
+
+## 주요 확인 탭
+
+### Scheduler 탭 (`/scheduler`)
+
+Capacity Scheduler의 전체 큐 상태를 한눈에 볼 수 있다.
+
+| 항목 | 의미 |
+|---|---|
+| **Used Capacity** | 현재 사용 중인 리소스 비율 |
+| **AM Used** | AM 컨테이너가 사용 중인 리소스 |
+| **AM Limit** | `maximum-am-resource-percent` 기준 AM 한도 |
+| **Pending** | 리소스 대기 중인 컨테이너 수 |
+
+> [!TIP]
+> `AM Used`가 `AM Limit`에 근접하거나 같다면 → `maximum-am-resource-percent` 문제
+> `Pending`이 높고 `Used Capacity`가 낮다면 → 큐 설정 또는 리소스 단편화 문제
+
+### Applications 탭 (`/cluster/apps`)
+
+- **State 필터**: `ACCEPTED` 상태 잡이 많다면 AM 한도 또는 큐 용량 부족
+- **Elapsed Time**: 비정상적으로 오래 실행 중인 잡 탐지
+
+### Application 상세 (`/proxy/<app-id>/`)
+
+개별 잡을 클릭하면:
+- **Diagnostics**: 잡이 pending인 이유, Preemption 발생 여부 메시지 확인 가능
+- **Containers**: 각 컨테이너의 상태와 노드 위치 확인
+
+> [!NOTE]
+> (실제로 YARN UI에서 문제를 진단했던 경험이나, 유용하게 쓴 화면이 있다면 여기에 추가해 주세요. 스크린샷도 좋습니다.)
+
+---
+
+# 결론
+
+두 스케줄러는 **"리소스를 어떻게 나눌 것인가"** 에 대한 철학 차이다.
+
+- **예측 가능하고 팀별 보장이 필요하다** → Capacity Scheduler
+- **다양한 크기의 잡이 혼재하고 클러스터 활용률을 높이고 싶다** → Fair Scheduler
+
+AWS EMR 기본값인 Capacity Scheduler가 무조건 나쁜 건 아니다. 오히려 대부분의 배치 파이프라인 환경에서는 큐를 잘 설계한 Capacity Scheduler가 더 안정적이다.
+단, Capacity Scheduler를 선택했다면 아래 설정들을 반드시 점검해야 한다:
+
+| 설정 | 확인 포인트 |
+|---|---|
+| `maximum-am-resource-percent` | 잡이 ACCEPTED에서 멈추면 가장 먼저 확인 |
+| `minimum-user-limit-percent` | 특정 사용자가 큐를 독점하는 문제 방지 |
+| `user-limit-factor` | 한 사용자가 큐 용량 이상을 쓸 수 있는 범위 제어 |
+| `Preemption` | 활성화 시 Driver kill 위험 — 큐별 비활성화 필수 검토 |
+
+문제가 생겼을 때는 YARN ResourceManager UI의 **Scheduler 탭**에서 `AM Used / AM Limit`, `Pending` 수치를 확인하는 것이 첫 번째 디버깅 스텝이다.
+
+---
+
+## 관련 글
+
+- [스파크 아키텍쳐](/blog/spark/spark-architecture)
