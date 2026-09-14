@@ -1,0 +1,436 @@
+---
+title: 'EMR YARN Node Label Expression — CORE·TASK와 Distributed·Centralized 모드'
+date: '2026-09-15'
+tags: ['spark', 'aws', 'emr', 'yarn', 'performance', 'ai generated']
+draft: false
+summary: 'Amazon EMR에서 YARN Node Label Expression으로 ApplicationMaster와 Executor의 실행 노드를 제어하는 원리와 CORE·TASK 파티션, distributed·centralized 관리 방식을 정리한다.'
+---
+
+---
+
+이하 AI 작성 초안
+
+# 들어가며
+
+Amazon EMR 클러스터는 일반적으로 **Core 노드**와 **Task 노드**를 함께 사용한다.
+두 노드는 모두 Spark Executor를 실행할 수 있지만 운영 특성은 다르다.
+
+- Core 노드는 HDFS DataNode와 YARN NodeManager를 함께 실행한다.
+- Task 노드는 HDFS 데이터를 저장하지 않고 계산 작업만 수행한다.
+- 비용 절감을 위해 Task 노드를 Spot 인스턴스로 구성하는 경우가 많다.
+
+Spark ApplicationMaster가 Spot Task 노드에서 실행되다가 해당 인스턴스가 종료되면 애플리케이션 전체가 실패할 수 있다.
+EMR은 이런 위험을 줄이기 위해 YARN Node Label을 사용하여 ApplicationMaster를 `CORE` 파티션에 배치할 수 있다.
+
+> [!NOTE]
+> (Node Label Expression을 검토하게 된 배경, 사용 중인 EMR 릴리스, Core·Task 및 On-Demand·Spot 구성을 여기에 추가해 주세요.)
+
+---
+
+# YARN Node Label과 Node Label Expression
+
+YARN Node Label은 비슷한 특성을 가진 노드를 하나의 **파티션**으로 묶는 기능이다.
+현재 YARN의 노드 파티션 모델에서는 한 노드가 하나의 파티션에 속하며, 라벨이 없는 노드는 `DEFAULT` 파티션에 속한다.
+
+Node Label을 사용할 때는 다음 네 가지 설정을 따로 생각해야 한다.
+
+| 구분        | 역할                                           | 대표 설정 또는 명령                              |
+| ----------- | ---------------------------------------------- | ------------------------------------------------ |
+| 라벨 등록   | 클러스터에서 사용할 파티션 이름을 생성         | `yarn rmadmin -addToClusterNodeLabels`           |
+| 노드 매핑   | 각 NodeManager를 특정 라벨에 연결              | `-replaceLabelsOnNode` 또는 NodeManager provider |
+| Queue 권한  | Queue가 특정 라벨 파티션을 사용할 수 있게 허용 | `accessible-node-labels`                         |
+| 리소스 요청 | AM 또는 Executor가 실행될 파티션을 지정        | `Node Label Expression`                          |
+
+라벨을 등록했다고 노드에 자동으로 연결되는 것은 아니다.
+반대로 노드가 라벨을 보고하더라도 ResourceManager의 유효한 클러스터 라벨 목록과 Queue 권한이 준비되지 않으면 해당 파티션을 정상적으로 사용할 수 없다.
+
+## Exclusive와 Non-exclusive
+
+Node Label을 등록할 때 `exclusive` 속성을 지정할 수 있다.
+
+| 설정              | 동작                                                                    |
+| ----------------- | ----------------------------------------------------------------------- |
+| `exclusive=true`  | 같은 라벨을 요청한 컨테이너만 해당 파티션에 배치된다. 기본값이다.       |
+| `exclusive=false` | 라벨 요청이 없는 컨테이너도 해당 파티션의 유휴 리소스를 사용할 수 있다. |
+
+예를 들어 `CORE(exclusive=true)`라면 `CORE`를 요청한 AM은 Core 노드에서 실행되지만, 라벨을 요청하지 않은 Executor는 Core 노드를 사용할 수 없다.
+Core 노드의 유휴 CPU와 메모리까지 Executor가 사용해야 한다면 라벨의 배타성과 Executor Expression을 함께 검토해야 한다.
+
+---
+
+# EMR에서 CORE와 TASK가 의미하는 것
+
+Amazon EMR 5.19.0 이상은 Apache Hadoop에 내장된 YARN Node Label 기능을 사용한다.
+EMR의 대표적인 구성은 Core 노드에 `CORE` 라벨을 지정하고 ApplicationMaster의 기본 Expression을 `CORE`로 설정하는 방식이다.
+
+```text
+Core 노드: CORE 파티션
+Task 노드: 라벨 없음, 즉 DEFAULT 파티션
+
+ApplicationMaster 요청: CORE
+Executor 요청: 라벨 없음
+```
+
+이 구성에서는 수명이 긴 ApplicationMaster를 Core 노드에 두고, Executor는 Task 노드를 포함한 기본 파티션에서 실행한다.
+
+> [!IMPORTANT]
+> 일반적인 EMR 구성에서 Task 노드는 `TASK`라는 YARN 라벨을 받지 않는다. AWS 공식 문서도 EMR이 Task 노드에 라벨을 지정하지 않으므로 애플리케이션 프로세스를 `TASK` 라벨로 제한할 수 없다고 설명한다. YARN UI에 `CORE`만 보이고 Task 노드가 빈 라벨로 표시되는 것은 정상일 수 있다.
+
+## Task 노드에 TASK 라벨을 붙일 때의 장단점
+
+Task 노드에 명시적인 `TASK` 라벨을 붙이면 Core와 Task를 서로 다른 YARN 파티션으로 완전히 분리할 수 있다.
+이 방식은 배치 위치를 강하게 통제해야 할 때 유용하지만, EMR의 일반적인 `CORE + DEFAULT` 구성보다 운영해야 할 설정이 많다.
+
+### 장점
+
+| 장점               | 설명                                                                                                             |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| Executor 격리      | `spark.yarn.executor.nodeLabelExpression=TASK`로 Executor가 계산 전용 Task 노드에서만 실행되도록 강제할 수 있다. |
+| Core 노드 보호     | 큰 Executor나 공격적인 동적 할당이 HDFS를 담당하는 Core 노드의 CPU와 메모리를 잠식하는 것을 막을 수 있다.        |
+| 비용 정책 분리     | Task 노드를 Spot으로 구성한 경우 재시도 가능한 연산 컨테이너를 비용이 낮은 노드에 모을 수 있다.                  |
+| Queue별 용량 통제  | Capacity Scheduler에서 `TASK` 파티션의 capacity와 maximum-capacity를 Queue별로 따로 지정할 수 있다.              |
+| 전용 하드웨어 활용 | 메모리 최적화 인스턴스나 특정 아키텍처처럼 Task 그룹의 특성이 뚜렷할 때 대상 워크로드만 보낼 수 있다.            |
+| 관측성 향상        | YARN Node Labels와 Scheduler 화면에서 Core·Task 파티션의 수요와 사용량을 구분해 볼 수 있다.                      |
+
+### 단점
+
+| 단점                        | 설명                                                                                                                                                                 |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 리소스 단편화               | `TASK`가 exclusive이면 Task 파티션에 여유가 있어도 라벨 없는 요청은 그 자원을 사용할 수 없다. 반대로 Executor를 `TASK`로 고정하면 유휴 Core 자원으로 확장할 수 없다. |
+| Task 부족 시 대기           | Task 노드가 0개이거나 Scale-up이 늦으면 Core 노드에 여유가 있어도 Executor가 계속 pending 상태로 남는다.                                                             |
+| 설정 범위 증가              | 라벨 등록, 노드 매핑, Queue 접근 권한, 파티션 capacity, Spark Expression을 모두 맞춰야 한다.                                                                         |
+| 자동 확장 관리              | Centralized 모드에서는 새 Task 호스트가 생길 때마다 매핑이 필요하다. Distributed 모드에서도 새 노드가 정확한 provider 설정을 받아야 한다.                            |
+| EMR 관리 기능과 충돌 가능성 | Managed Scaling이 관리하는 라벨을 실행 중에 수동으로 추가하거나 변경하는 방식은 지원되지 않는다. 릴리스와 Scaling 정책에 맞는 구성이 필요하다.                       |
+| 라벨 축 선택 제한           | YARN 노드는 하나의 파티션에만 속하므로 `TASK`와 `SPOT`처럼 노드 유형과 시장 유형을 독립 라벨로 동시에 표현할 수 없다. 어떤 기준으로 격리할지 선택해야 한다.          |
+| 장애 가능 지점 증가         | 라벨 오타, Queue 권한 누락, 잘못된 exclusive 설정 하나만으로도 사용 가능한 인스턴스가 있는데 컨테이너가 생성되지 않는 문제가 생긴다.                                 |
+
+`TASK` 라벨이 잘 맞는 경우는 Core 노드의 HDFS 안정성을 강하게 보호해야 하거나, 계산 전용 인스턴스에만 Executor를 배치해야 하거나, Queue별 Task 용량을 명확하게 나눠야 하는 환경이다.
+
+단순히 Spot Task 노드 종료로부터 ApplicationMaster를 보호하는 목적이라면 Task 노드를 무라벨 `DEFAULT` 파티션으로 유지하고 AM에만 `CORE` Expression을 적용하는 구성이 더 단순하다.
+이 경우 Executor는 기본 파티션을 요청하므로 `spark.yarn.executor.nodeLabelExpression`을 지정하지 않는다.
+
+> [!TIP]
+> Task 노드의 남는 리소스를 다른 무라벨 워크로드에도 제공해야 한다면 `TASK(exclusive=false)`를 검토할 수 있다. 다만 이 설정은 “Task 노드는 TASK 요청만 받는다”는 강한 격리를 완화하므로, 격리와 활용률 중 어느 쪽이 우선인지 먼저 정해야 한다.
+
+## EMR 릴리스별 차이
+
+| EMR 릴리스  | 주요 동작                                                                                               |
+| ----------- | ------------------------------------------------------------------------------------------------------- |
+| 5.19.0 이상 | EMR 전용 패치 대신 YARN 내장 Node Label 기능을 사용한다.                                                |
+| 6.x         | Node Label 기능이 기본적으로 비활성화되어 있다. 활성화 설정이 필요하다.                                 |
+| 7.x         | 노드 유형 외에 `ON_DEMAND`, `SPOT` 같은 시장 유형을 기준으로도 배치를 제한할 수 있다.                   |
+| 7.2 이상    | Managed Scaling이 AM 수요와 Executor 수요를 구분해 Core·Task 또는 On-Demand·Spot 용량을 조정할 수 있다. |
+
+EMR 6.x에서 ApplicationMaster를 Core 노드로 제한하려면 최소한 다음 속성을 활성화해야 한다.
+
+```xml
+<property>
+  <name>yarn.node-labels.enabled</name>
+  <value>true</value>
+</property>
+<property>
+  <name>yarn.node-labels.am.default-node-label-expression</name>
+  <value>CORE</value>
+</property>
+```
+
+EMR의 전체 구성에는 라벨 저장소, 관리 모드, NodeManager provider, Capacity Scheduler의 라벨 접근 권한도 포함된다.
+관련 속성을 일부만 덮어쓰면 EMR이 제공하는 AM 보호 동작이 달라질 수 있으므로 실제 릴리스의 기본 설정을 먼저 확인해야 한다.
+
+---
+
+# Distributed 모드
+
+`distributed`는 각 NodeManager가 자신의 라벨을 결정하고 ResourceManager에 보고하는 방식이다.
+NodeManager는 고정 설정, 스크립트 또는 사용자 정의 provider를 사용할 수 있다.
+
+```xml
+<!-- ResourceManager가 읽는 공통 yarn-site.xml -->
+<property>
+  <name>yarn.node-labels.enabled</name>
+  <value>true</value>
+</property>
+<property>
+  <name>yarn.node-labels.configuration-type</name>
+  <value>distributed</value>
+</property>
+<property>
+  <name>yarn.node-labels.fs-store.root-dir</name>
+  <value>/apps/yarn/nodelabels</value>
+</property>
+```
+
+Core NodeManager가 `CORE` 라벨을 보고하도록 하는 설정은 다음과 같다.
+
+```xml
+<!-- Core 노드의 yarn-site.xml -->
+<property>
+  <name>yarn.nodemanager.node-labels.provider</name>
+  <value>config</value>
+</property>
+<property>
+  <name>yarn.nodemanager.node-labels.provider.configured-node-partition</name>
+  <value>CORE</value>
+</property>
+```
+
+Task 노드에는 위의 `configured-node-partition=CORE` 설정을 적용하지 않는다.
+Task 노드까지 같은 설정을 받으면 모든 NodeManager가 자신을 `CORE`로 보고해 파티션 분리가 무너진다.
+
+노드 속성이 자주 달라진다면 `script` provider를 사용할 수도 있다.
+스크립트는 다음과 같은 형식으로 라벨을 출력한다.
+
+```bash
+#!/usr/bin/env bash
+printf '%s\n' 'NODE_PARTITION:CORE'
+```
+
+```xml
+<property>
+  <name>yarn.nodemanager.node-labels.provider</name>
+  <value>script</value>
+</property>
+<property>
+  <name>yarn.nodemanager.node-labels.provider.script.path</name>
+  <value>/etc/hadoop/conf/node-label-provider.sh</value>
+</property>
+```
+
+Distributed 모드는 노드가 추가되거나 교체될 때 provider가 라벨을 다시 보고하므로 동적으로 확장되는 클러스터에 적합하다.
+EMR의 Core 노드 보호 구성도 이 방식을 사용한다.
+
+> [!NOTE]
+> (실제 클러스터의 `yarn-site.xml`에서 확인한 NodeManager provider와 Core·Task 노드별 설정 차이를 여기에 추가해 주세요.)
+
+---
+
+# Centralized 모드
+
+`centralized`는 ResourceManager 관리자가 CLI, REST 또는 RPC로 노드와 라벨의 매핑을 직접 관리하는 방식이다.
+별도 설정을 하지 않으면 YARN Node Label의 기본 관리 방식은 centralized다.
+
+```xml
+<property>
+  <name>yarn.node-labels.enabled</name>
+  <value>true</value>
+</property>
+<property>
+  <name>yarn.node-labels.configuration-type</name>
+  <value>centralized</value>
+</property>
+```
+
+Centralized 모드에서는 먼저 라벨 이름을 클러스터에 등록하고, 그다음 각 노드에 라벨을 매핑한다.
+
+```bash
+# 1. 클러스터 라벨 등록
+yarn rmadmin -addToClusterNodeLabels \
+  'CORE(exclusive=true),TASK(exclusive=true)'
+
+# 2. 등록 결과 확인
+yarn cluster --list-node-labels
+
+# 3. 현재 NodeManager 이름 확인
+yarn node -list -all
+
+# 4. 노드와 라벨 매핑
+yarn rmadmin -replaceLabelsOnNode \
+  'core-host-1=CORE core-host-2=CORE task-host-1=TASK' \
+  -failOnUnknownNodes
+```
+
+NodeManager 포트를 생략하면 해당 호스트에서 실행되는 모든 NodeManager에 라벨을 적용한다.
+포트까지 구분해야 한다면 `host:port=LABEL` 형식을 사용한다.
+
+Centralized 모드는 매핑이 명확하고 관리자가 즉시 수정할 수 있지만, Auto Scaling으로 노드가 자주 교체되는 환경에서는 새 호스트를 계속 매핑해야 한다.
+따라서 동적인 EMR 클러스터에서는 일반적으로 distributed provider가 더 자연스럽다.
+
+> [!WARNING]
+> Managed Scaling을 사용하는 EMR에서는 AWS가 클러스터 생성 및 프로비저닝 과정에서 지원되는 라벨을 만든다. AWS는 실행 중인 클러스터를 재구성하여 라벨을 추가하거나 Managed Scaling 설정 후 라벨을 수정하는 방식을 지원하지 않는다. `TASK` 라벨을 수동으로 추가하는 예시는 일반 YARN의 centralized 동작을 설명하기 위한 것이며, EMR Managed Scaling의 기본 구성을 그대로 나타내지 않는다.
+
+---
+
+# addToClusterNodeLabels 명령의 정확한 역할
+
+명령 이름의 정확한 철자는 `addToClusterNodeLabels`다.
+
+```bash
+yarn rmadmin -addToClusterNodeLabels \
+  'CORE(exclusive=true),TASK(exclusive=false)'
+```
+
+이 명령은 ResourceManager의 **유효한 클러스터 라벨 목록**에 `CORE`와 `TASK`를 추가한다.
+노드를 라벨에 연결하는 명령은 아니다.
+
+| 작업           | 명령                                               |
+| -------------- | -------------------------------------------------- |
+| 라벨 등록      | `yarn rmadmin -addToClusterNodeLabels 'CORE,TASK'` |
+| 라벨 목록 조회 | `yarn cluster --list-node-labels`                  |
+| 노드 매핑      | `yarn rmadmin -replaceLabelsOnNode 'host1=CORE'`   |
+| 특정 노드 확인 | `yarn node -status <NodeId>`                       |
+| 라벨 삭제      | `yarn rmadmin -removeFromClusterNodeLabels 'TASK'` |
+
+`exclusive`를 생략하면 기본값은 `true`다.
+이미 Queue가 사용하는 라벨은 먼저 Queue 설정에서 연결을 제거하지 않으면 삭제할 수 없다.
+
+Distributed 모드에서도 NodeManager가 보고할 라벨은 ResourceManager가 알고 있는 유효한 라벨이어야 한다.
+다만 EMR이 관리하는 기본 `CORE` 라벨은 EMR의 프로비저닝 과정에서 준비되므로, 정상 구성에 같은 명령을 반복해서 실행할 필요는 없다.
+
+---
+
+# Capacity Scheduler에서 라벨 파티션 열기
+
+노드 매핑이 끝나도 Queue가 해당 라벨에 접근할 수 없으면 컨테이너가 배치되지 않는다.
+Capacity Scheduler에서는 Queue별 접근 권한과 파티션 용량을 설정해야 한다.
+
+```xml
+<property>
+  <name>yarn.scheduler.capacity.root.accessible-node-labels</name>
+  <value>*</value>
+</property>
+<property>
+  <name>yarn.scheduler.capacity.root.accessible-node-labels.CORE.capacity</name>
+  <value>100</value>
+</property>
+<property>
+  <name>yarn.scheduler.capacity.root.default.accessible-node-labels</name>
+  <value>*</value>
+</property>
+<property>
+  <name>yarn.scheduler.capacity.root.default.accessible-node-labels.CORE.capacity</name>
+  <value>100</value>
+</property>
+```
+
+Queue 설정을 변경했다면 다음 명령으로 갱신한다.
+
+```bash
+yarn rmadmin -refreshQueues
+```
+
+`accessible-node-labels`는 접근 가능 여부를 정하고, `accessible-node-labels.<LABEL>.capacity`는 해당 파티션에서 Queue가 보장받는 비율을 정한다.
+두 설정 중 하나라도 빠지면 “노드는 남는데 컨테이너가 할당되지 않는” 상황이 생길 수 있다.
+
+---
+
+# Spark에서 AM과 Executor 배치하기
+
+Spark on YARN은 AM과 Executor에 서로 다른 Node Label Expression을 지정할 수 있다.
+
+```bash
+spark-submit \
+  --master yarn \
+  --deploy-mode cluster \
+  --conf spark.yarn.am.nodeLabelExpression=CORE \
+  --conf spark.yarn.executor.nodeLabelExpression=TASK \
+  application.jar
+```
+
+| Spark 설정                                | 대상                                   |
+| ----------------------------------------- | -------------------------------------- |
+| `spark.yarn.am.nodeLabelExpression`       | YARN ApplicationMaster가 실행될 파티션 |
+| `spark.yarn.executor.nodeLabelExpression` | Spark Executor가 실행될 파티션         |
+
+EMR의 일반적인 `CORE + DEFAULT` 구성에서는 `TASK` 라벨이 없으므로 Executor Expression을 `TASK`로 지정하면 Executor가 뜨지 않는다.
+이때는 Executor Expression을 생략해 기본 파티션을 사용한다.
+
+```bash
+spark-submit \
+  --master yarn \
+  --deploy-mode cluster \
+  --conf spark.yarn.am.nodeLabelExpression=CORE \
+  application.jar
+```
+
+`cluster` 배포 모드에서는 Spark Driver가 ApplicationMaster 프로세스 안에서 실행되므로 `CORE` 배치가 Driver도 보호한다.
+`client` 배포 모드에서는 Driver가 `spark-submit`을 실행한 클라이언트에 있고, YARN의 AM Expression은 YARN ApplicationMaster 컨테이너에만 적용된다.
+
+> [!IMPORTANT]
+> YARN의 `distributed`·`centralized`는 **노드와 라벨을 누가 매핑하는지**에 관한 설정이다. Spark의 `cluster`·`client`는 **Driver가 어디에서 실행되는지**에 관한 배포 모드다. 이름이 비슷해 보여도 서로 다른 축이다.
+
+---
+
+# 자주 발생하는 문제와 확인 순서
+
+## 라벨은 보이는데 연결된 노드가 0개다
+
+`addToClusterNodeLabels`는 이름만 등록한다.
+Centralized 모드라면 `replaceLabelsOnNode`를 실행하고, distributed 모드라면 각 NodeManager의 provider 설정과 로그를 확인한다.
+
+## AM이 ACCEPTED 상태에서 계속 기다린다
+
+다음을 순서대로 확인한다.
+
+1. 실제로 `CORE` 라벨을 가진 활성 NodeManager가 있는가
+2. 제출한 Queue가 `CORE`에 접근할 수 있는가
+3. `CORE` 파티션의 Queue capacity가 0보다 큰가
+4. `maximum-am-resource-percent` 한도에 도달하지 않았는가
+5. Expression의 대소문자와 라벨 이름이 정확한가
+
+## Executor가 하나도 생성되지 않는다
+
+EMR Task 노드를 `TASK` 라벨 파티션이라고 가정하고 `spark.yarn.executor.nodeLabelExpression=TASK`를 설정했는지 확인한다.
+YARN Nodes 화면에서 Task 노드가 무라벨이라면 Executor Expression을 제거하여 `DEFAULT` 파티션을 요청해야 한다.
+
+## 설정은 맞지만 Managed Scaling이 기대와 다르게 움직인다
+
+EMR 7.2 이상에서 Node Label과 Managed Scaling을 함께 사용하면 AM 수요와 Executor 수요에 따라 Core와 Task를 독립적으로 확장할 수 있다.
+여러 애플리케이션을 병렬로 실행한다면 AWS는 `yarn.scheduler.capacity.maximum-am-resource-percent`를 `1`로 설정할 것을 안내한다.
+또한 Core 축소 시 HDFS 안정성과 ApplicationMaster의 수명을 함께 고려해야 한다.
+
+## 확인 명령과 UI
+
+```bash
+# 유효한 클러스터 라벨과 exclusive 속성
+yarn cluster --list-node-labels
+
+# 활성 NodeManager 목록
+yarn node -list -all
+
+# 개별 NodeManager의 라벨
+yarn node -status <NodeId>
+```
+
+ResourceManager UI에서도 다음 화면을 확인할 수 있다.
+
+- `/cluster/nodes`: 노드별 라벨
+- `/cluster/nodelabels`: 파티션별 활성 NodeManager와 전체 리소스
+- `/cluster/scheduler`: Queue별 라벨 접근 권한과 파티션 사용량
+
+> [!NOTE]
+> (장애 당시의 `yarn cluster --list-node-labels`, NodeManager 상태, Scheduler 화면과 해결 전후 결과를 여기에 추가해 주세요.)
+
+---
+
+# 결론
+
+EMR에서 Node Label Expression을 사용할 때 핵심은 `CORE`와 `TASK`를 단순한 EC2 역할 이름으로만 보지 않는 것이다.
+YARN 스케줄러 관점에서는 실제로 등록되고 노드에 매핑된 **파티션 이름**이어야 한다.
+
+EMR의 일반적인 보호 구성은 Core 노드에만 `CORE`를 붙이고 Task 노드는 `DEFAULT` 파티션에 두며, ApplicationMaster만 `CORE`로 제한한다.
+직접 `TASK` 라벨을 만들어 Executor를 분리하려면 라벨 등록, 노드 매핑, Queue 권한, Spark Expression을 모두 일관되게 구성해야 한다.
+
+운영 전에는 다음 항목을 확인한다.
+
+- EMR 릴리스에서 Node Label이 기본 활성화되어 있는가
+- 클러스터 라벨과 실제 노드 매핑이 모두 존재하는가
+- Queue가 해당 라벨 파티션에 접근할 수 있는가
+- AM과 Executor가 요청하는 Expression이 실제 파티션 구조와 일치하는가
+- Managed Scaling이 수동 라벨 변경을 지원하는 구성인가
+
+---
+
+## 참고 자료
+
+- [Amazon EMR 노드 유형과 Task 노드 Spot 종료 보호 설정](https://docs.aws.amazon.com/ko_kr/emr/latest/ManagementGuide/emr-plan-instances-guidelines.html)
+- [Amazon EMR Managed Scaling 사용 시 Node Label 고려사항](https://docs.aws.amazon.com/emr/latest/ManagementGuide/emr-managed-scaling.html)
+- [Amazon EMR Managed Scaling의 Core·Task 할당 시나리오](https://docs.aws.amazon.com/emr/latest/ManagementGuide/managed-scaling-allocation-strategy.html)
+- [Apache Hadoop YARN Node Labels](https://hadoop.apache.org/docs/r3.4.0/hadoop-yarn/hadoop-yarn-site/NodeLabel.html)
+- [Apache Spark on YARN 설정](https://spark.apache.org/docs/latest/running-on-yarn)
+
+---
+
+## 관련 글
+
+- [YARN Capacity Scheduler 실전 가이드](/blog/spark/yarn-fair-vs-capacity-scheduler)
+- [스파크 아키텍쳐](/blog/spark/spark-architecture)
