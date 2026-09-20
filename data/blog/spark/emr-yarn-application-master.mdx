@@ -1,0 +1,328 @@
+---
+title: 'Spark on EMR의 ApplicationMaster — Driver 관계, 메모리, 대기와 재시도'
+date: '2026-09-21'
+tags: ['spark', 'aws', 'emr', 'yarn', 'memory', 'performance', 'ai generated']
+draft: false
+summary: 'YARN ApplicationMaster와 Spark Driver의 관계를 cluster·client 모드별로 정리하고, EMR에서 AM 메모리·동시 실행 한도·노드 라벨·장애 재시도를 진단하는 방법을 설명한다.'
+---
+
+---
+
+이하 AI 작성 초안
+
+# 들어가며
+
+Spark 애플리케이션이 `ACCEPTED` 상태에서 멈추거나 Livy 세션이 준비되지 않을 때 ApplicationMaster, 줄여서 AM이라는 용어를 만나게 된다. AM은 애플리케이션을 시작하고 YARN 자원을 확보하는 데 관여하므로, Executor 설정만 보고는 설명하기 어려운 문제와 연결되어 있다.
+
+이 글은 **EMR on EC2의 일반적인 Spark on YARN 구성**을 다룬다. Spark 설정은 Apache Spark 3.5.6 문서를 기준으로 설명하며, EMR에서 실제 사용하는 릴리스의 기본값과 지원 설정은 별도로 확인한다. EMR Serverless나 Kubernetes의 실행 구조에 YARN AM 개념을 그대로 적용하지 않는다.
+
+> [!NOTE]
+> (사용 중인 EMR·Spark 버전, cluster/client 배포 모드, AM 관련 대기 또는 종료 문제를 처음 발견한 상황을 추가해 주세요.)
+
+---
+
+# AM, ResourceManager, NodeManager의 역할
+
+YARN은 클러스터 전체의 자원 관리와 애플리케이션별 실행 관리를 분리한다. ResourceManager가 전체 자원을 조정하고, AM은 자신이 담당하는 애플리케이션에 필요한 자원을 요청한다. NodeManager는 각 노드에서 컨테이너를 실행하고 사용량을 관리한다. [Apache Hadoop YARN 구조](https://hadoop.apache.org/docs/r3.3.6/hadoop-yarn/hadoop-yarn-site/YARN.html)
+
+| 구성 요소             | 범위                     | 주요 역할                                          |
+| --------------------- | ------------------------ | -------------------------------------------------- |
+| ResourceManager, RM   | 클러스터                 | 애플리케이션 접수와 스케줄러를 통한 자원 할당      |
+| NodeManager, NM       | 각 실행 노드             | 컨테이너 시작·종료, 노드와 컨테이너 상태 보고      |
+| ApplicationMaster, AM | 애플리케이션의 실행 시도 | 자원 협상, Executor 컨테이너 실행 요청과 상태 관리 |
+| Spark Driver          | Spark 애플리케이션       | 실행 계획과 Job·Stage·Task 스케줄링                |
+| Spark Executor        | 할당된 실행 자원         | Task 실행과 데이터 캐시·셔플 처리                  |
+
+일반적인 managed AM 구성에서는 애플리케이션의 각 실행 시도(application attempt)에 AM이 하나씩 있다. Spark action을 실행할 때마다 AM이 추가되는 것은 아니다. 하나의 애플리케이션에서 여러 Spark Job이 실행되어도 같은 AM을 사용한다. [YARN 구조](https://hadoop.apache.org/docs/r3.3.6/hadoop-yarn/hadoop-yarn-site/YARN.html), [Spark 용어 정의](https://spark.apache.org/docs/3.5.6/cluster-overview.html)
+
+EMR의 Primary 노드와 AM도 구분해야 한다. Primary는 노드 역할이고 AM은 프로세스 역할이다. YARN 컨테이너는 CPU·메모리 등을 할당받는 실행 단위이며, 반드시 Docker 컨테이너를 뜻하지는 않는다.
+
+---
+
+# AM과 Driver는 배포 모드에 따라 관계가 달라진다
+
+| 항목                  | YARN cluster 모드                       | YARN client 모드                         |
+| --------------------- | --------------------------------------- | ---------------------------------------- |
+| Driver 위치           | YARN AM 프로세스 안                     | 제출 측 클라이언트 프로세스              |
+| AM의 역할             | Driver 실행과 YARN 자원 관리            | YARN 자원 관리와 Executor 실행 지원      |
+| 제출 측 프로세스 종료 | 제출 후 Driver는 클러스터에서 실행 가능 | Driver가 종료되면 애플리케이션 유지 불가 |
+| Driver 장애 조사 위치 | AM 컨테이너 로그                        | 제출 측 Driver 로그                      |
+
+Spark 공식 문서는 cluster 모드에서 Driver가 AM 프로세스 안에서 실행되고, client 모드에서는 AM이 자원 요청을 담당한다고 구분한다. [Spark on YARN 배포 모드](https://spark.apache.org/docs/3.5.6/running-on-yarn.html)
+
+```text
+cluster 모드
+  제출 클라이언트 → RM → NM의 AM 컨테이너 [AM + Driver]
+                              └─ Executor 컨테이너들
+
+client 모드
+  제출 측 [Driver] ← 통신 → YARN의 AM 컨테이너
+       └──────────── 통신 → Executor 컨테이너들
+```
+
+이 때문에 “AM은 가벼우니 메모리가 거의 필요 없다”는 판단을 모든 환경에 적용할 수 없다. Cluster 모드에서는 사용자 코드와 SparkContext를 실행하는 Driver까지 함께 고려해야 한다.
+
+---
+
+# Cluster 모드 애플리케이션이 시작되는 흐름
+
+1. 제출 클라이언트가 애플리케이션과 AM 자원 요구량을 RM에 전달한다.
+2. 스케줄러가 Queue와 배치 조건을 확인해 AM 컨테이너를 할당한다.
+3. 해당 NM이 AM을 시작하고, Spark AM이 사용자 Driver 코드를 실행한다.
+4. AM이 RM에 등록하고 필요한 Executor 자원을 요청한다.
+5. 할당된 노드에서 Executor가 시작되어 Driver에 등록한다.
+6. Driver가 Task를 배분하고, 애플리케이션 종료 시 자원을 반납한다.
+
+YARN의 첫 AM 컨테이너 할당과 Spark AM 내부의 초기화는 서로 다른 단계다. [YARN 애플리케이션 관리](https://hadoop.apache.org/docs/r3.3.6/hadoop-yarn/hadoop-yarn-site/YARN.html), [Spark ApplicationMaster 구현](https://github.com/apache/spark/blob/v3.5.6/resource-managers/yarn/src/main/scala/org/apache/spark/deploy/yarn/ApplicationMaster.scala)
+
+따라서 다음 두 증상은 조사 방향이 다르다.
+
+- AM 컨테이너가 아직 없으면 Queue·AM 한도·라벨·배치 가능한 노드 자원을 확인한다.
+- AM 컨테이너는 있지만 초기화가 끝나지 않으면 Driver 로그와 라이브러리 로딩, SparkContext 생성, 네트워크 연결을 확인한다.
+
+`RUNNING` 상태도 사용자 작업이 성공했다는 의미는 아니다. Executor 확보와 실제 Task 수행은 이후에 확인해야 한다.
+
+## State와 Final-State를 함께 확인한다
+
+YARN의 `state`는 ResourceManager가 보는 실행 상태이고, `finalStatus`는 애플리케이션이 보고하는 최종 결과다. REST 응답에서는 두 필드가 분리되어 있으므로 `FINISHED`만 확인하고 성공으로 처리하지 않는다. CLI의 `yarn application -status`에서도 State와 Final-State를 함께 읽는다. [ResourceManager 애플리케이션 응답](https://hadoop.apache.org/docs/r3.3.6/hadoop-yarn/hadoop-yarn-site/ResourceManagerRest.html#Cluster_Application_API)
+
+아래는 응답의 일부를 추린 예시다.
+
+```json
+{
+  "app": {
+    "id": "application_1234567890000_0042",
+    "state": "FINISHED",
+    "finalStatus": "SUCCEEDED"
+  }
+}
+```
+
+YARN 성공도 모든 외부 데이터 검증이 통과했다는 뜻은 아니다. 사용자 코드가 오류를 삼키고 정상 종료하면 스케줄러가 데이터 품질까지 판별하지는 못하므로, 중요한 결과 검증의 실패를 애플리케이션 실패로 전달하도록 설계한다.
+
+---
+
+# AM 메모리 설정을 모드별로 구분하기
+
+| 목적                 | cluster 모드                  | client 모드                    |
+| -------------------- | ----------------------------- | ------------------------------ |
+| AM JVM 메모리        | `spark.driver.memory`         | `spark.yarn.am.memory`         |
+| AM 컨테이너 overhead | `spark.driver.memoryOverhead` | `spark.yarn.am.memoryOverhead` |
+| AM vcore             | `spark.driver.cores`          | `spark.yarn.am.cores`          |
+| 별도 Driver 메모리   | AM 컨테이너에 포함            | 제출 측 Driver에서 별도 확보   |
+
+Spark의 YARN 제출 코드는 배포 모드에 따라 위 설정을 선택하고, 메모리와 overhead의 합을 AM 컨테이너 요구량으로 보낸다. Cluster 모드에서 `spark.yarn.am.memory`만 올리는 것으로 Driver 메모리 부족을 해결할 수 없다. [Spark YARN Client의 AM 자원 계산](https://github.com/apache/spark/blob/v3.5.6/resource-managers/yarn/src/main/scala/org/apache/spark/deploy/yarn/Client.scala)
+
+## Cluster 모드 예시
+
+```bash
+# application.py는 실행할 애플리케이션 파일로 교체한다.
+spark-submit \
+  --master yarn \
+  --deploy-mode cluster \
+  --queue default \
+  --driver-memory 4g \
+  --conf spark.driver.memoryOverhead=1024 \
+  --executor-memory 4g \
+  --executor-cores 2 \
+  application.py
+```
+
+위 예제의 AM 컨테이너 메모리 요청은 **4096 MiB + 1024 MiB = 5120 MiB**다. 실제 할당은 YARN의 자원 할당 단위에 맞춰 조정될 수 있고, 컨테이너 최대 크기 제한도 만족해야 한다. Cluster 전체에 빈 메모리가 많아도 조건에 맞는 단일 노드에 컨테이너가 들어가지 않으면 실행되지 않는다.
+
+## Client 모드 예시
+
+```bash
+spark-submit \
+  --master yarn \
+  --deploy-mode client \
+  --driver-memory 4g \
+  --conf spark.yarn.am.memory=512m \
+  --conf spark.yarn.am.memoryOverhead=384 \
+  application.py
+```
+
+이 예제의 YARN AM 요청은 **512 MiB + 384 MiB = 896 MiB**이고, Driver의 4 GiB는 제출 측에서 따로 사용한다. 예제 값은 계산을 위한 값이며 모든 작업에 적합한 권장 사양을 뜻하지 않는다. [Spark YARN 자원 요청 구현](https://github.com/apache/spark/blob/v3.5.6/resource-managers/yarn/src/main/scala/org/apache/spark/deploy/yarn/Client.scala)
+
+## Heap과 overhead를 구분한다
+
+Cluster 모드 Driver 컨테이너의 overhead는 JVM heap 외 메모리와 PySpark Driver의 Python 프로세스 같은 사용량도 고려하는 영역이다. `Java heap space`와 컨테이너 전체 메모리 초과는 같은 원인이 아닐 수 있다.
+
+`collect()`처럼 많은 데이터를 Driver로 가져오는 코드가 문제라면 메모리 증설 전에 결과 크기를 줄일 수 있는지 확인한다. `spark.driver.maxResultSize`는 action 결과의 직렬화 크기를 제한하는 보호 장치이며, 이를 무제한으로 바꾸는 것이 OOM 해결책은 아니다. [Spark 메모리 설정](https://spark.apache.org/docs/3.5.6/configuration.html#application-properties)
+
+시작 시 필요한 메모리는 `spark-submit`이나 Livy 세션 생성 요청에 지정한다. 실행 중인 Driver에 `spark.conf.set()`을 호출해 프로세스의 heap 크기를 바꾸는 방식으로 접근하지 않는다.
+
+---
+
+# ACCEPTED에서 기다리는 이유: AM 한도와 배치 조건
+
+Capacity Scheduler의 `maximum-am-resource-percent`는 AM이 사용할 자원 비율을 제한한다. Apache Hadoop 3.3.6 문서의 기본값은 `0.1`이지만, EMR과 개별 Queue의 실제 설정을 확인해야 한다. Queue 용량과 사용자 제한도 영향을 주므로 단순히 클러스터 전체 메모리의 10%로만 계산하면 실제 한도와 어긋날 수 있다. [Capacity Scheduler 실행 제한](https://hadoop.apache.org/docs/r3.3.6/hadoop-yarn/hadoop-yarn-site/CapacityScheduler.html#Running_and_Pending_Application_Limits)
+
+## AM 크기가 동시 실행 수에 미치는 영향
+
+Scheduler UI에서 확인한 해당 Queue·파티션의 AM 메모리 한도가 20 GiB라고 가정한다. 모든 AM의 실제 할당 크기가 같고 다른 제한은 없다는 계산 예시다.
+
+| AM 컨테이너 할당 크기 | 메모리 한도만 고려한 개수 |
+| --------------------- | ------------------------- |
+| 1 GiB                 | 20개                      |
+| 5 GiB                 | 4개                       |
+| 10 GiB                | 2개                       |
+
+Cluster 모드에서 Driver를 크게 잡으면 같은 AM 한도에서 시작할 수 있는 애플리케이션 수가 줄어든다. 실제 실행 개수는 vcore, 사용자별 AM 한도, 자원 계산 방식, 노드별 여유량까지 확인해야 한다.
+
+예를 들어 위의 20 GiB 한도에서 5 GiB짜리 Livy AM이 4개 살아 있다면, Executor가 모두 회수되어도 새 5 GiB AM을 위한 메모리 여유는 없다. 이때의 점검 대상은 유휴 Livy 세션과 AM 한도이며, Task 노드 증설이나 Executor 메모리 조정만으로는 원인이 해소되지 않는다. 이 계산은 실제 Scheduler에 표시된 한도와 할당량을 넣어 판단하는 방법이다.
+
+## 비슷해 보이는 세 가지 제한
+
+| 설정                          | 제한 대상                          | 한도에 도달했을 때             |
+| ----------------------------- | ---------------------------------- | ------------------------------ |
+| `maximum-applications`        | 실행·대기를 포함한 애플리케이션 수 | 신규 제출 거부                 |
+| `max-parallel-apps`           | 동시 실행 애플리케이션 수          | `ACCEPTED`에서 대기            |
+| `maximum-am-resource-percent` | AM 자원 비율                       | AM 자원이 가능해질 때까지 대기 |
+
+이 설정들은 별개다. AM 비율을 올려도 `max-parallel-apps`에 걸린 대기가 해결되지는 않는다. [Capacity Scheduler 제한 평가 순서](https://hadoop.apache.org/docs/r3.3.6/hadoop-yarn/hadoop-yarn-site/CapacityScheduler.html#Running_and_Pending_Application_Limits)
+
+Queue별 AM 비율을 지정하는 EMR 구성 예시는 다음과 같다. `0.2`는 예시이며 실제 자원 구성에 맞게 결정한다.
+
+```json
+[
+  {
+    "Classification": "capacity-scheduler",
+    "Properties": {
+      "yarn.scheduler.capacity.root.default.maximum-am-resource-percent": "0.2"
+    }
+  }
+]
+```
+
+파일 기반 Capacity Scheduler 설정을 수정한 경우에는 `yarn rmadmin -refreshQueues`로 Queue 설정을 갱신할 수 있다. EMR configuration API를 통한 재구성은 적용·서비스 재시작 절차를 별도로 확인한다. [Hadoop Queue 설정 갱신](https://hadoop.apache.org/docs/r3.3.6/hadoop-yarn/hadoop-yarn-site/CapacityScheduler.html#Changing_Queue_Configuration)
+
+> [!NOTE]
+> (Scheduler UI의 AM 사용량·한도, Queue와 Node Label 파티션, 변경 전후 동시 실행 수를 추가해 주세요.)
+
+---
+
+# EMR Core·Task와 AM 배치 정책
+
+AM을 어느 노드에 둘지는 장애 영향과 연결된다. Cluster 모드에서는 AM이 있는 노드의 종료가 Driver 종료로 이어진다. Task 노드를 Spot으로 운영한다면 AM 배치를 따로 설계할 이유가 생긴다.
+
+EMR 6.x에서는 YARN Node Label이 기본적으로 비활성화되어 있으며, AWS는 기능을 켜고 AM을 `CORE`로 제한하는 설정을 안내한다. EMR 7.x에서는 `ON_DEMAND` 같은 시장 유형 기준도 사용할 수 있다. [AWS EMR 노드 유형과 AM 배치](https://docs.aws.amazon.com/emr/latest/ManagementGuide/emr-master-core-task-nodes.html)
+
+```json
+[
+  {
+    "Classification": "yarn-site",
+    "Properties": {
+      "yarn.node-labels.enabled": "true",
+      "yarn.node-labels.am.default-node-label-expression": "CORE"
+    }
+  }
+]
+```
+
+이는 EMR이 제공하는 라벨 구성을 활용하는 예시다. 실제 라벨 매핑과 Queue 접근 권한이 준비되어 있어야 하며, `CORE`는 노드 역할을 뜻하므로 Core가 Spot이면 Spot 종료 위험까지 제거하지는 못한다.
+
+AM을 `CORE`에 제한한 상태에서 Task 노드만 늘리면 AM을 실행할 공간은 늘지 않는다. 이 경우에는 전체 유휴 리소스보다 `CORE` 파티션의 가용량을 봐야 한다. 설정과 관리 모드는 [Node Label Expression 글](/blog/spark/emr-yarn-node-label-expression)에서 이어서 다룬다.
+
+## Managed Scaling에서 AM 비율 1이 언급되는 이유
+
+AWS는 **Node Label과 Managed Scaling을 함께 쓰면서 여러 애플리케이션을 병렬 실행하는 경우** `yarn.scheduler.capacity.maximum-am-resource-percent=1`을 안내한다. AM 배치용 Core 또는 On-Demand 노드를 활용하려는 맥락이다. [EMR Managed Scaling 고려사항](https://docs.aws.amazon.com/emr/latest/ManagementGuide/emr-managed-scaling.html)
+
+따라서 `1`을 모든 환경에서 금지하거나 권장하는 식으로 일반화하면 안 된다. AM과 Executor가 같은 자원을 경쟁하는 구성인지, 파티션을 분리했는지, Queue별 override가 있는지를 먼저 확인한다.
+
+---
+
+# AM 장애와 애플리케이션 재시도
+
+Executor 하나가 종료된 상황과 Driver를 포함한 AM이 종료된 상황은 복구 범위가 다르다.
+
+| 장애 범위                    | 검토할 복구 단위                                  |
+| ---------------------------- | ------------------------------------------------- |
+| Task 실패                    | 해당 Task의 재실행                                |
+| Executor 손실                | Task 재실행과 필요한 셔플·데이터 재계산           |
+| cluster 모드 AM/Driver 손실  | 새 application attempt와 사용자 프로그램 재시작   |
+| client 모드 외부 Driver 손실 | Driver 프로세스 자체의 재기동·애플리케이션 재제출 |
+
+AM 재시도는 중단된 Driver 메모리에서 이어 달리는 기능이 아니다. Spark cluster 모드의 새 AM은 사용자 코드를 다시 시작할 수 있으므로 이미 수행한 외부 쓰기가 반복되어도 안전한지 검토해야 한다. [Spark ApplicationMaster 실행 구현](https://github.com/apache/spark/blob/v3.5.6/resource-managers/yarn/src/main/scala/org/apache/spark/deploy/yarn/ApplicationMaster.scala)
+
+주요 설정은 다음과 같다.
+
+| 설정                                            | 의미                                           |
+| ----------------------------------------------- | ---------------------------------------------- |
+| `spark.yarn.maxAppAttempts`                     | 애플리케이션의 최대 attempt 수. 최초 시도 포함 |
+| `yarn.resourcemanager.am.max-attempts`          | YARN에서 허용하는 AM attempt 상한              |
+| `spark.yarn.am.attemptFailuresValidityInterval` | AM 실패 횟수 집계의 유효 시간 관련 설정        |
+
+Spark의 attempt 설정은 YARN 상한보다 클 수 없다. `maxAppAttempts=2`는 최초 1회와 추가 1회를 허용하는 상한이며, 모든 실패가 반드시 재시도된다는 보장은 아니다. 실패 원인과 종료 처리에 따라 최종 실패로 끝날 수 있다. [Spark YARN 재시도 설정 정의](https://github.com/apache/spark/blob/v3.5.6/resource-managers/yarn/src/main/scala/org/apache/spark/deploy/yarn/config.scala)
+
+Airflow나 다른 오케스트레이터의 작업 재시도는 별도 계층이다. YARN 안에서의 attempt 증가와 새 YARN application 제출을 구분해 기록해야 중복 처리와 실제 실행 횟수를 추적할 수 있다.
+
+예를 들어 YARN 최대 attempt가 2이고 오케스트레이터가 최초 실행 후 2회 재제출한다면, 각 실행이 모두 재시도 가능한 방식으로 실패한다는 가정에서 최대 3개 application과 6개 attempt가 생길 수 있다. 로그에는 업무 실행 ID를 함께 남기고, 출력은 업무 날짜·파티션·고유 키 등의 기준으로 중복 여부를 판단한다. 재시도 횟수만 늘리는 것으로 외부 시스템의 중복 쓰기 문제는 해결되지 않는다.
+
+---
+
+# Livy 세션과 AM을 함께 보는 이유
+
+일반적인 Livy 대화형 세션은 Spark 애플리케이션을 유지한다. Cluster 모드의 Livy 세션에서는 AM 안의 Driver가 인터프리터와 Spark 실행 환경을 유지하므로, statement 실행이 끝나 세션이 `idle`로 돌아가도 AM이 종료되는 것은 아니다. [Livy 세션 구조](https://github.com/apache/incubator-livy/blob/v0.8.0-incubating/server/src/main/scala/org/apache/livy/server/interactive/InteractiveSession.scala)
+
+이 구조에서 여러 노트북이 유휴 세션을 유지하면 새 세션을 시작할 AM 여유량이 부족할 수 있다. 동적 할당으로 Executor가 줄어도 Driver·AM이 남는다는 점을 기준으로 세션 수명과 동시 사용량을 점검한다.
+
+```text
+Livy starting
+  → 연결된 YARN app 확인
+  → ACCEPTED이면 Queue·AM 한도·배치 조건 확인
+  → AM이 시작됐으면 Driver 초기화와 Livy 연결 로그 확인
+```
+
+Livy timeout을 늘리는 조치만으로 AM 용량 부족이 해결되지는 않는다. 오히려 유휴 세션이 더 오래 남을 수 있다. 세션 종료와 오류 처리 예제는 [Livy 세션 글](/blog/spark/emr-livy-session)에 정리했다.
+
+---
+
+# AM 문제 진단 순서
+
+## 먼저 application과 attempt를 연결한다
+
+아래 ID는 실제 값으로 교체한다. Application attempt 조회 결과와 RM UI에서 해당 attempt의 AM 컨테이너·노드를 찾아 로그로 이동한다.
+
+```bash
+yarn application -status application_1234567890000_0042
+yarn applicationattempt -list application_1234567890000_0042
+yarn applicationattempt -status appattempt_1234567890000_0042_000001
+yarn logs -applicationId application_1234567890000_0042
+```
+
+로그 조회 가능 범위는 로그 집계 설정과 권한에 따른다. Client 모드의 외부 Driver 로그는 AM 로그와 별도로 확인한다. [YARN 조회 명령](https://hadoop.apache.org/docs/r3.3.6/hadoop-yarn/hadoop-yarn-site/YarnCommands.html)
+
+## 증상별로 확인 범위를 좁힌다
+
+| 증상                             | 우선 확인할 항목                                               |
+| -------------------------------- | -------------------------------------------------------------- |
+| `ACCEPTED`에서 장시간 대기       | Queue·사용자 AM 한도, 동시 실행 수, 라벨 접근과 실제 노드 자원 |
+| 제출 즉시 메모리 관련 오류       | AM 요구량과 컨테이너 최대 할당 크기                            |
+| AM이 실행된 뒤 초기화 실패       | Driver stack trace, SparkContext 시작, 클래스패스와 연결 문제  |
+| `Java heap space`                | Driver heap, 큰 결과 수집, Driver의 데이터 구조                |
+| 컨테이너 메모리 초과로 종료      | heap 외 사용량, Python 메모리, 컨테이너 overhead               |
+| AM attempt가 반복됨              | 첫 실패 원인, 노드 종료, 재시도 설정과 중복 쓰기               |
+| Task 증설 후에도 새 작업이 안 뜸 | AM이 배치될 Core·On-Demand 파티션의 여유량                     |
+
+`spark.yarn.am.waitTime`은 cluster 모드에서 AM이 SparkContext 초기화를 기다리는 설정이다. Queue에서 AM 컨테이너가 할당되기를 기다리는 시간과는 대상이 다르다. `ACCEPTED` 대기 원인을 확인하지 않고 이 값부터 늘리지 않는다. [Spark AM 초기화 설정](https://github.com/apache/spark/blob/v3.5.6/resource-managers/yarn/src/main/scala/org/apache/spark/deploy/yarn/config.scala)
+
+> [!NOTE]
+> (application ID와 attempt별 AM 노드, 최초 실패 로그, 조정한 메모리·Queue·라벨 설정과 결과를 추가해 주세요.)
+
+---
+
+# 결론
+
+AM 문제를 볼 때 첫 확인 항목은 배포 모드다. Cluster 모드에서는 Driver 메모리와 장애를 함께 보고, client 모드에서는 AM과 외부 Driver를 따로 추적한다.
+
+실행 전 대기는 Queue 한도와 배치 조건을, 실행 후 종료는 AM·Driver 로그와 컨테이너 사용량을 확인한다. Livy 세션과 노드 라벨까지 연결해서 보면 유휴 세션이 새 작업을 막거나 Task 증설이 AM 부족을 해결하지 못하는 상황도 설명할 수 있다.
+
+---
+
+## 관련 글
+
+- [EMR Livy 세션 이해하기 — 생성부터 리소스 관리와 타임아웃까지](/blog/spark/emr-livy-session)
+- [EMR YARN Node Label Expression — CORE·TASK와 관리 모드](/blog/spark/emr-yarn-node-label-expression)
+- [YARN Capacity Scheduler 실전 가이드](/blog/spark/yarn-fair-vs-capacity-scheduler)
+- [스파크 아키텍쳐](/blog/spark/spark-architecture)
