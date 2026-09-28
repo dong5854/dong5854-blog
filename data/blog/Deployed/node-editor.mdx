@@ -1,0 +1,69 @@
+---
+title: '데이터베이스 구현 퍼즐게임의 에디터 구현'
+date: '2026-09-28'
+tags: ['Deployed', 'electron', 'React', 'game']
+draft: true
+summary: 데이터베이스 구현 퍼즐게임의 에디터를 구현하는 과정
+---
+
+# 데이터베이스 구현 퍼즐 게임
+
+데이터베이스를 직접 구현하는 컨셉의 퍼즐 게임을 기획 후 구현하는 과정을 정리합니다.
+TODO: 첫 퍼즐의 내용 설명
+
+## 1. 데이터 모양 — `packages/core/src/model.ts`
+
+게임에서 쓰는 데이터 모양부터 봐요.
+Node의 세 종류 `read`, `set`, `write`와 페이지 데이터 구조를 보면 이 퍼즐이 무엇을 조립하는지 잡힙니다.
+
+## 2. 실행 엔진 — `packages/core/src/execution.ts`
+
+가장 중요한 파일입니다.
+
+- `diagnose()`: 연결이 완성됐는지 검사
+- `execute()`: 노드 배열을 순서대로 실행
+
+여기서 "읽기 → 작업 사본 수정 → 페이지 쓰기"가 실제로 어떻게 다른지 이해하면 UI도 쉽게 읽혀요.
+
+## 3. 튜토리얼 데이터 — `packages/core/src/tutorial.ts`
+
+문제 데이터와 초기 설계도 `starter`, 정답 설계도 `reference`가 있습니다.
+`execute(starter, case)`와 `execute(reference, case)`를 비교해 보면 퍼즐 의도가 명확합니다.
+
+## 4. React 상태 관리 — `src/renderer/src/useTutorial.ts`
+
+React 상태와 게임 규칙을 연결하는 파일입니다.
+노드 추가, 연결, 실행, Undo/Redo, 저장이 여기 있습니다.
+
+특히 `connect()` → `insert()` → `orderAfter()` → `run()` 순으로 보면 좋습니다.
+
+## 5. 블루프린트 에디터 — `src/renderer/src/BlueprintEditor.tsx`
+
+Unreal Blueprint 느낌의 화면 구현입니다.
+
+- `positions`: 노드 좌표
+- `view`: 캔버스 이동·확대 상태
+- `pointerMove()` / `pointerUp()`: 노드·핀·부품함 드래그 처리
+- `wires`: 핀 사이 SVG 연결선
+
+여기서는 "그래프처럼 보이지만, 실제 실행 순서는 `save.draft` 배열"이라는 점을 기억하면 됩니다.
+흰색 실행 선을 다시 연결하면 `orderAfter()`가 그 배열 순서를 바꿉니다.
+
+## 6. 스타일 — `src/renderer/src/style.css`
+
+기능 이해 뒤에 보세요.
+`graph-`으로 검색하면 캔버스, 노드, 핀, 선의 스타일만 빠르게 찾을 수 있습니다.
+
+## 7. 테스트 — `tests/tutorial.test.mjs`
+
+코드를 읽은 뒤 테스트를 읽으면 "이 프로젝트가 반드시 지켜야 하는 규칙"을 확인할 수 있습니다.
+특히 잘못된 실행 순서, 잘못된 필드, 저장 검증 사례가 유용합니다.
+
+## 추천 공부 순서
+
+1. `execution.ts`에서 `execute()`를 읽는다
+2. `tutorial.ts`의 `reference`를 손으로 따라 실행해 본다
+3. `useTutorial.ts`의 `run()`으로 연결한다
+4. `BlueprintEditor.tsx`에서 핀 연결이 결국 `connect()` 호출로 귀결되는 흐름을 본다
+
+이 순서로 보면 전체 구조가 자연스럽게 이어집니다.
