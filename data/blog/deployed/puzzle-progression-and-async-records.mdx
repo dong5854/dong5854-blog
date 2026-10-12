@@ -1,0 +1,255 @@
+---
+title: 'Deployed 문답 학습: 퍼즐 진행 관리와 늦게 도착한 조회 결과'
+date: '2026-10-12'
+tags: ['deployed', 'ai-learning', 'ai generated']
+draft: true
+summary: '퍼즐 목록과 완료 기록의 구조, 순차 접근 규칙, 저장 오류의 격리, 조회 함수의 확장성 개선과 React cleanup의 역할을 실제 코드 문답으로 정리한다.'
+---
+
+---
+
+이하 AI 작성 초안
+
+# 현재 퍼즐 하나를 표시하기까지
+
+Deployed는 데이터의 영속성·비용·캐시와 자료구조를 설계하는 퍼즐 게임이다. Electron 앱 안에서 React가 퍼즐 화면과 사무실 UI를 관리한다. 프로젝트를 이해하려고 manware-ai-learning-toolkit으로 AI와 문답을 진행하며, 아직 검증하지 못한 내용을 표시한 학습 주석부터 읽었다.
+
+처음 다룬 코드는 사무실의 ‘현재 퍼즐’을 고르는 함수였다. 짧은 배열 탐색에서 시작했지만 질문은 저장 기록의 구조, 퍼즐 접근 순서, 파일 하나가 손상됐을 때의 처리, 사무실로 돌아올 때의 React 상태 갱신까지 이어졌다. 이 글은 메서드마다 따로 끊지 않고 그 흐름을 한 단위로 정리한 기록이다.
+
+문답 초반에는 튜토리얼 세 편을 기준으로 질문했다. 2026년 10월 12일 확인한 현재 목록에는 해시 퍼즐 세 편도 추가되어 있다. 아래의 설명용 시나리오는 `power`, `cost`, `cache`를 중심으로 삼지만, 실제 선택과 진입 검사는 전체 목록에 적용된다.
+
+---
+
+# 배열인 목록과 키로 접근하는 완료 기록
+
+처음에는 `puzzles`를 딕셔너리라고 생각했다. 객체들이 나열되어 있다는 점에 집중했지만, 바깥 구조는 배열이다. 퍼즐 목록은 표시 순서를 담고, 완료 기록은 퍼즐 ID로 상태를 찾는 객체다.
+
+`src/renderer/puzzles/puzzleCatalog.ts`의 현재 선언에서 튜토리얼 세 항목만 발췌했다. 표시용 필드는 생략했다.
+
+```typescript
+export const puzzles = [
+  { id: 'power', saveId: undefined, decode: decodePowerSave /* 표시 필드 생략 */ },
+  { id: 'cost', saveId: 'cost-02', decode: decodeCostSave /* 표시 필드 생략 */ },
+  { id: 'cache', saveId: 'cache-03', decode: decodeCacheSave /* 표시 필드 생략 */ },
+  // 해시 퍼즐 항목 생략
+] as const
+```
+
+`saveId`와 `decode`는 문답 중 확장성 문제를 발견하고 추가한 필드다. 수정 과정은 뒤에서 다룬다.
+
+완료 기록의 타입과 변환 코드는 다음과 같다.
+
+```typescript
+export type PuzzleId = (typeof puzzles)[number]['id']
+export type RecordState = { solved: boolean; error?: string }
+export type PuzzleRecords = Record<PuzzleId, RecordState>
+
+// 각 퍼즐을 조회한 결과를 entries로 모은 뒤 실행하는 실제 코드
+return Object.fromEntries(entries) as PuzzleRecords
+```
+
+`entries`의 각 항목은 `[퍼즐 ID, 상태 객체]`다. `Object.fromEntries()`는 이것을 ID를 키로 하는 객체로 바꾼다. 따라서 목록에서는 `find()`로 퍼즐 객체를 찾고, 완료 기록에서는 `records['cost'].solved`처럼 키로 접근한다. 문답에서 이 차이를 직접 설명했다.
+
+현재 퍼즐을 고르는 실제 구현은 짧다.
+
+```typescript
+export function firstUnsolvedPuzzle(records: PuzzleRecords) {
+  return puzzles.find((puzzle) => !records[puzzle.id].solved)
+}
+```
+
+`power`가 완료이고 `cost`가 미완료라면 `power`의 조건은 `!true`, 즉 `false`다. 다음 `cost`에서는 `!false`가 `true`라서 그 객체를 반환하고 탐색을 끝낸다.
+
+여기서 `find()`가 일치 항목을 찾지 못하면 빈 배열을 반환한다고 답했다가 `undefined`라는 설명을 받았다. 이후 `find()`와 `filter()`가 같은지 다시 물었고, `cost`와 `cache`가 모두 미완료인 경우를 비교했다. 마지막에는 `find()`는 `cost` 객체 하나를, `filter()`는 두 객체를 포함한 배열을 반환한다고 설명했다.
+
+| 메서드     | 일치 항목이 있을 때        | 일치 항목이 없을 때 |
+| ---------- | -------------------------- | ------------------- |
+| `find()`   | 첫 번째 일치 원소 하나     | `undefined`         |
+| `filter()` | 모든 일치 원소를 담은 배열 | 빈 배열             |
+
+`find()`의 미일치 반환값은 설명으로 교정한 내용이고, 두 메서드의 반환 형태 차이는 후속 답변으로 확인한 내용이다.
+
+---
+
+# 뒤 퍼즐부터 고르는 명세를 바꾸다
+
+문답 시작 당시 함수는 목록을 복사하고 뒤집은 뒤 미완료 퍼즐을 찾았다.
+
+```typescript
+// 문답 당시의 이전 구현. 현재 코드는 아니다.
+return [...puzzles].reverse().find((puzzle) => !records[puzzle.id].solved)
+```
+
+처음에는 `power`만 완료했다면 `cost`를 고를 것이라고 답했다. 그러나 역순 목록은 `cache → cost → power`이므로 실제로는 `cache`를 고른다. 당시 명세도 가장 뒤의 미완료 퍼즐을 표시하도록 되어 있어 코드와 명세는 일치했다.
+
+그렇지만 플레이 흐름의 요구는 달랐다. 완료하지 않은 가장 앞 퍼즐을 표시하고, 그 퍼즐을 끝내기 전에는 뒤 퍼즐로 접근할 수 있어서는 안 된다고 지적했다. 이 요청에 따라 AI가 명세와 구현을 함께 수정했다. 현재 `firstUnsolvedPuzzle()`은 원래 순서의 배열에 바로 `find()`를 실행한다.
+
+표시만 바꾸면 다른 진입 경로로 뒤 퍼즐을 열 수 있다. 그래서 선행 퍼즐 완료를 검사하는 함수도 사용한다.
+
+```typescript
+export function canAccessPuzzle(records: PuzzleRecords, id: PuzzleId) {
+  const index = puzzles.findIndex((puzzle) => puzzle.id === id)
+  return index >= 0 && puzzles.slice(0, index).every((puzzle) => records[puzzle.id].solved)
+}
+```
+
+처음에는 `slice()`가 마지막 위치까지 포함한다고 생각했다. 하지만 끝 인덱스는 포함하지 않는다. `cache`의 인덱스가 2라면 `slice(0, 2)`에는 `power`와 `cost`만 들어간다. 진입하려는 `cache` 자신과 그 뒤 항목은 제외된다.
+
+후속 문답에서는 앞의 두 퍼즐이 완료됐다면 미완료인 `cache`에 진입할 수 있다고 답했다. 첫 퍼즐인 `power`에서는 `slice(0, 0)`이 빈 배열이고, 빈 배열의 `every()`는 `true`다. 따라서 첫 퍼즐에는 선행 완료 조건이 없다.
+
+`src/renderer/app/Game.tsx`의 실제 진입 함수는 시작 직전에 기록을 다시 읽는다.
+
+```typescript
+const enterPuzzle = async (id: PuzzleId, practice = false) => {
+  const records = await loadPuzzleRecords()
+  if (!canAccessPuzzle(records, id) || (practice && !records[id].solved)) return
+  setReplay(practice)
+  setTutorial(id)
+}
+```
+
+현재 퍼즐 시작, 다음 미션, 다시 풀기가 이 함수를 거친다. 다시 풀기는 선행 완료 조건에 더해 대상 퍼즐 자신의 완료 기록도 필요하다. 선행 기록이 손상되면 뒤 퍼즐에 완료 기록이 있더라도 접근을 잠그고, 기존 완료 기록 자체는 삭제하지 않는다.
+
+---
+
+# window.deployed.load는 무엇을 읽는가
+
+완료 기록 조회를 읽다가 `window.deployed.load()`가 어떤 함수인지 물었다. 이것은 브라우저 기본 API가 아니라 프로젝트가 preload에서 공개한 함수다.
+
+`src/preload/index.cjs`의 실제 코드 중 공개 부분을 발췌했다.
+
+```javascript
+contextBridge.exposeInMainWorld('deployed', {
+  platform: process.platform,
+  load: (mission) => ipcRenderer.invoke('tutorial:load', undefined, mission),
+  // 다른 공개 API 생략
+})
+```
+
+React 화면이 `window.deployed.load('cost-02')`를 호출하면 preload는 Electron 메인 프로세스에 메시지를 보낸다. `src/main/index.cjs`는 요청 화면과 미션 ID를 검사하고, 해당 미션 저장소의 `load()`를 호출한다. 실제 파일 읽기는 `src/main/save-store.cjs`의 `fs.readFile(target, 'utf8')`에서 수행한다.
+
+결과는 읽은 JSON 문자열을 담은 성공 응답 또는 오류 메시지를 담은 실패 응답이다. 파일이 없는 경우에는 성공 응답의 `data`가 `null`이다. 파일을 읽는 단계와 디코더로 그 내용을 해석·검증하는 단계는 구분된다.
+
+이 호출 경로는 AI의 코드 설명을 통해 확인했다. Electron 프로세스 경계와 `contextBridge`의 보안 모델 전체를 따로 검증하는 문답까지 진행한 것은 아니다.
+
+---
+
+# 파일 하나의 실패를 전체 실패로 만들지 않기
+
+현재 `loadPuzzleRecords()`의 실제 구현이다.
+
+```typescript
+export async function loadPuzzleRecords(): Promise<PuzzleRecords> {
+  const entries = await Promise.all(
+    puzzles.map(async (puzzle) => {
+      try {
+        if (!window.deployed) throw new Error('완료 기록은 Electron 앱에서 확인할 수 있습니다.')
+        const reply = await window.deployed.load(puzzle.saveId)
+        if (!reply.ok) throw new Error(reply.error)
+        const saved = reply.data && puzzle.decode(reply.data)
+        return [puzzle.id, { solved: Boolean(saved && saved.solved) }] as const
+      } catch (error) {
+        return [
+          puzzle.id,
+          { solved: false, error: error instanceof Error ? error.message : String(error) },
+        ] as const
+      }
+    })
+  )
+  return Object.fromEntries(entries) as PuzzleRecords
+}
+```
+
+`cost` 파일 하나만 읽기에 실패하면 모든 기록 조회가 실패하지 않을까 생각했다. 중요한 것은 `catch`의 위치였다. 각 퍼즐을 처리하는 콜백 안에서 오류를 잡고 실패 기록을 반환한다. 그 콜백의 Promise는 실패 기록을 결과 값으로 삼아 정상 완료된다.
+
+따라서 정상 파일의 기록은 유지되고, `cost`만 `solved: false`와 오류 메시지가 담긴 기록으로 남는다. 후속 질문에서는 `power`는 정상 조회되고 `cost`에는 오류가 남는다고 설명했다. 반대로 `catch`에서 `throw error`로 다시 던지면 해당 Promise와 `Promise.all()`이 거부된다. 이 경우에도 이미 시작한 다른 조회가 자동 취소되는 것은 아니다.
+
+오류가 난 기록을 미완료로 처리하는 것은 접근 규칙과도 연결된다. 완료 여부를 확인하지 못한 선행 퍼즐이 있으면 뒤 퍼즐의 진입 검사를 통과할 수 없다. 오류 표시는 남기므로 단순 미완료와 조회 실패를 화면에서 구분할 수 있다.
+
+---
+
+# 퍼즐이 늘 때마다 조건문을 늘리지 않도록
+
+기존 조회 코드에는 저장 ID를 고르는 조건문과 디코더를 고르는 조건문이 따로 있었다. 해시 퍼즐이 늘면서 두 식 모두 길어졌다. 새 퍼즐마다 같은 함수 안의 연산자를 계속 늘려야 하는 구조가 확장에 불리하다고 지적했다.
+
+문답에서 변경안을 논의한 뒤 적용을 요청했다. AI는 퍼즐별 차이를 목록의 `saveId`와 `decode`로 옮겼다. 조회 함수는 앞서 본 것처럼 `puzzle.saveId`로 읽고 `puzzle.decode()`로 검증하는 공통 흐름만 수행한다.
+
+해시 디코더는 미션 ID도 인자로 받으므로 현재 목록에서는 다음처럼 연결한다. 표시용 필드를 생략한 실제 항목 발췌다.
+
+```typescript
+{
+  id: 'hash-11',
+  saveId: 'hash-11',
+  decode: (raw: string) => decodeHashSave(raw, 'hash-11'),
+  // chapter, title, description 생략
+}
+```
+
+이제 새 퍼즐의 저장 ID와 디코더를 목록에 추가해도 `loadPuzzleRecords()`의 분기를 수정할 필요가 없다. 다만 메인 프로세스의 저장소 등록, 공개 API 타입, 퍼즐 화면 연결 등 프로젝트의 다른 등록 지점까지 없어지는 것은 아니다.
+
+리팩터링에서도 `try/catch`는 각 저장 기록을 조회하는 콜백 안에 유지했다. 대화에서 ‘각 퍼즐을 해결하는 곳’이라고 표현했던 위치는 퍼즐 풀이 시점이 아니라 이 조회 콜백을 뜻한다.
+
+---
+
+# 새 조회를 막는 것과 이전 결과를 막는 것은 다르다
+
+가장 오래 다룬 코드는 사무실로 돌아왔을 때 기록을 갱신하는 effect였다. `src/renderer/office/OfficeMission.tsx`의 실제 구현이다.
+
+```tsx
+useEffect(() => {
+  if (!visible) return
+  let active = true
+  void loadPuzzleRecords().then((next) => {
+    if (active) setRecords(next)
+  })
+  return () => {
+    active = false
+  }
+}, [visible])
+```
+
+`visible`은 사무실에서 `true`, 퍼즐 화면에서 `false`다. 의존성 배열을 `[]`로 바꾸면 사무실에 돌아왔을 때 값을 다시 읽지 않는다고 답했다. 정확히는 `visible` 변수가 없어지는 것이 아니라 effect를 다시 실행시키는 의존성에서 빠지는 것이다.
+
+그다음에는 `visible`이 `false`면 얼리 리턴하는데 `active`를 왜 별도로 `false`로 만드는지 이해하기 어려웠다. 처음에는 cleanup이 파일 조회 자체를 멈추는 장치라고 생각했다.
+
+두 조건은 적용되는 시점이 다르다. `if (!visible) return`은 새 effect가 조회를 시작하기 전에 검사한다. 이미 시작한 조회가 끝날 때 이 줄로 돌아가 다시 검사하지 않는다. 반면 `.then()`의 `if (active)`는 조회 결과가 도착한 뒤 상태에 반영하기 직전에 검사한다.
+
+`loadPuzzleRecords()`는 `async` 함수로 Promise를 반환한다. `.then()`이 함수를 비동기로 바꾸는 것이 아니라 나중에 결과가 준비됐을 때 실행할 콜백을 등록하는 것이다. `await`가 없어도 비동기 조회는 진행된다. 앞의 `void`도 기다리거나 취소하는 기능은 아니다.
+
+`visible`이 바뀌면 React는 이전 effect의 cleanup을 실행한다. 화면을 떠난 이전 조회의 `active`가 `false`가 된다. 파일 조회는 계속되고 `.then()`도 실행되지만 `setRecords(next)`만 건너뛴다. 이 차이는 후속 답변에서 직접 설명했다.
+
+---
+
+# 늦은 결과가 최신 완료 기록을 덮어쓰는 상황
+
+화면이 숨겨져 있다면 상태를 바꿔도 별문제가 없지 않을까 생각했다. 사무실을 빠르게 떠났다가 돌아오는 예시에서는 두 번 조회되어 화면이 깜빡이는 문제인지 물었다. 핵심은 조회 횟수보다 결과 반영 순서였다.
+
+다음은 실제로 관찰한 장애가 아니라 문답에서 가정한 시나리오다. A가 조회한 기록이 갱신 전 상태이고 B가 갱신 후 상태이며, A의 결과 전달이 더 늦어진다고 가정한다.
+
+| 순서 | 동작                                                          |
+| ---- | ------------------------------------------------------------- |
+| 1    | 사무실에서 조회 A를 시작한다. A의 결과에는 `cost`가 미완료다. |
+| 2    | 퍼즐로 이동해 `cost`를 완료한다.                              |
+| 3    | 사무실로 돌아와 조회 B를 시작한다.                            |
+| 4    | B가 먼저 끝나 완료된 `cost` 기록을 반영한다.                  |
+| 5    | A가 늦게 끝나 미완료 기록으로 덮어쓰려고 한다.                |
+
+비동기 작업의 시작 순서와 완료 순서는 같다고 보장되지 않는다. A를 먼저 시작했더라도 B가 먼저 끝날 수 있다. cleanup이 없으면 A의 `active`가 계속 `true`라서 오래된 결과를 반영할 수 있다.
+
+이전 effect의 cleanup은 A가 참조하는 `active`를 `false`로 바꾼다. 새 effect는 별도의 `active = true`를 만든다. 따라서 B의 결과는 반영하고 늦게 도착한 A의 결과는 무시한다. 마지막 답변에서는 B를 반영해야 하며 `active = false`가 뒤늦은 A의 반영을 막는다고 설명했다.
+
+이 코드는 조회를 취소하는 장치도, 작업 완료 순서를 강제하는 장치도 아니다. 현재 effect에서 받아들일 결과와 이미 유효 기간이 지난 결과를 구분한다.
+
+---
+
+# 확인한 범위와 다음 학습
+
+이번 문답에서 답변으로 확인한 것은 배열과 ID 기반 객체의 접근 차이, `find()`와 `filter()`의 반환 형태, 선행 퍼즐만 검사하는 `slice()`와 `every()`, 퍼즐별 오류 기록, 늦은 결과의 상태 반영을 막는 cleanup의 역할이다. 가장 이해가 많이 바뀐 부분은 ‘새 조회를 시작하지 않기’와 ‘이미 시작한 조회의 결과를 반영하지 않기’가 별개라는 점이었다.
+
+코드 변경도 있었다. 현재 퍼즐을 앞에서부터 선택하고 선행 완료 조건을 적용하도록 명세와 진입 경로를 바꿨다. 이후 퍼즐별 저장 정보와 디코더를 목록으로 옮겼다. 이해를 확인한 선택 함수, 오류 격리, 사무실 기록 갱신의 학습 주석은 삭제했다.
+
+저장 조회 리팩터링 후 AI가 타입 검사, 린트, 렌더러 빌드와 관련 테스트 세 개를 실행해 통과를 확인했다. 테스트는 현재 여섯 퍼즐의 64가지 완료 조합, 선행 오류에 따른 접근 차단, 저장 ID 연결, 정상 디코딩, 파일 없음, 읽기 실패, 다른 해시 미션 파일의 검증 실패를 확인한다. 테스트의 파일 읽기는 가짜 `window.deployed.load` 응답으로 대체했으며 실제 디코더를 사용한다.
+
+이 리팩터링 단계에서는 Electron 화면 검사를 다시 실행하지 않았다. 앞선 순차 진행 변경 단계의 Electron 진행·다시 풀기 검사는 통과했지만, 전체 화면 검사의 Dock 숨김 시간 실패는 별도로 남아 있었다. 가정한 A·B 응답 역전은 실제 Electron에서 재현하거나 자동 테스트한 결과로 쓰지 않는다.
+
+다음 학습에서는 화면 전환 시 React 컴포넌트를 제거하는 것과 숨기는 것의 차이를 다룰 예정이다. 이 차이가 라디오의 오디오 요소와 재생 위치 유지에 어떻게 연결되는지 실제 코드로 확인한다. 이번 단위를 복습하려면 A와 B의 결과 도착 순서를 종이에 바꿔 그리면서, 각각의 `active` 값과 `setRecords()` 실행 여부를 설명하는 연습이 적절하다.
