@@ -1,9 +1,10 @@
 ---
 title: 'EMR YARN Node Label Expression — CORE·TASK와 Distributed·Centralized 모드'
 date: '2026-09-15'
-tags: ['spark', 'aws', 'emr', 'yarn', 'performance', 'ai generated']
+lastmod: '2026-10-09'
+tags: ['spark', 'aws', 'emr', 'yarn', 'performance', 'memory', 'ai generated']
 draft: false
-summary: 'Amazon EMR에서 YARN Node Label Expression으로 ApplicationMaster와 Executor의 실행 노드를 제어하는 원리와 CORE·TASK 파티션, distributed·centralized 관리 방식을 정리한다.'
+summary: 'Amazon EMR의 YARN Node Label 설정과 관리 방식을 정리하고, AM과 Executor가 Core에 몰려 Task 메모리는 남는데 새 AM을 띄우지 못했던 사례를 다룬다.'
 ---
 
 ---
@@ -21,6 +22,10 @@ Amazon EMR 클러스터는 일반적으로 **Core 노드**와 **Task 노드**를
 
 Spark ApplicationMaster가 Spot Task 노드에서 실행되다가 해당 인스턴스가 종료되면 애플리케이션 전체가 실패할 수 있다.
 EMR은 이런 위험을 줄이기 위해 YARN Node Label을 사용하여 ApplicationMaster를 `CORE` 파티션에 배치할 수 있다.
+
+실제로 AM의 기본 Expression만 `CORE`로 지정하고 Executor의 Expression은 별도로 지정하지 않은 환경에서, AM과 Executor가 모두 Core 노드에 몰리는 현상을 겪었다.
+Task 노드에는 메모리가 남아 있었지만 Core 노드에는 새 AM을 실행할 메모리가 부족했다.
+이 글에서는 라벨 설정을 설명한 뒤, 이 사례에서 AM 배치 제한과 Executor 배치 정책을 왜 따로 확인해야 하는지 다룬다.
 
 > [!NOTE]
 > (Node Label Expression을 검토하게 된 배경, 사용 중인 EMR 릴리스, Core·Task 및 On-Demand·Spot 구성을 여기에 추가해 주세요.)
@@ -71,7 +76,9 @@ ApplicationMaster 요청: CORE
 Executor 요청: 라벨 없음
 ```
 
-이 구성에서는 수명이 긴 ApplicationMaster를 Core 노드에 두고, Executor는 Task 노드를 포함한 기본 파티션에서 실행한다.
+이 구성에서는 수명이 긴 ApplicationMaster를 Core 노드에 두고, Queue의 기본 Expression이 비어 있다면 Executor는 `DEFAULT` 파티션을 요청한다.
+다만 `CORE`가 non-exclusive이면 이 요청도 Core의 유휴 자원을 사용할 수 있어, Executor가 Task 노드에서만 실행된다는 뜻은 아니다.
+AWS가 안내하는 EMR 구성은 `CORE(exclusive=false)`이며, AM 외 컨테이너는 Core와 Task 모두에 배치될 수 있다. [AWS의 EMR YARN 라벨 설정 안내](https://repost.aws/knowledge-center/emr-configure-node-labeling-yarn)
 
 > [!IMPORTANT]
 > 일반적인 EMR 구성에서 Task 노드는 `TASK`라는 YARN 라벨을 받지 않는다. AWS 공식 문서도 EMR이 Task 노드에 라벨을 지정하지 않으므로 애플리케이션 프로세스를 `TASK` 라벨로 제한할 수 없다고 설명한다. YARN UI에 `CORE`만 보이고 Task 노드가 빈 라벨로 표시되는 것은 정상일 수 있다.
@@ -107,7 +114,7 @@ Task 노드에 명시적인 `TASK` 라벨을 붙이면 Core와 Task를 서로 �
 `TASK` 라벨이 잘 맞는 경우는 Core 노드의 HDFS 안정성을 강하게 보호해야 하거나, 계산 전용 인스턴스에만 Executor를 배치해야 하거나, Queue별 Task 용량을 명확하게 나눠야 하는 환경이다.
 
 단순히 Spot Task 노드 종료로부터 ApplicationMaster를 보호하는 목적이라면 Task 노드를 무라벨 `DEFAULT` 파티션으로 유지하고 AM에만 `CORE` Expression을 적용하는 구성이 더 단순하다.
-이 경우 Executor는 기본 파티션을 요청하므로 `spark.yarn.executor.nodeLabelExpression`을 지정하지 않는다.
+이 경우 Queue의 기본 Expression이 비어 있는지 확인하고 `spark.yarn.executor.nodeLabelExpression`을 생략한다. `CORE`가 non-exclusive이면 Executor의 Core 사용까지 차단하지는 않는다.
 
 > [!TIP]
 > Task 노드의 남는 리소스를 다른 무라벨 워크로드에도 제공해야 한다면 `TASK(exclusive=false)`를 검토할 수 있다. 다만 이 설정은 “Task 노드는 TASK 요청만 받는다”는 강한 격리를 완화하므로, 격리와 활용률 중 어느 쪽이 우선인지 먼저 정해야 한다.
@@ -176,6 +183,24 @@ Core NodeManager가 `CORE` 라벨을 보고하도록 하는 설정은 다음과 
 
 Task 노드에는 위의 `configured-node-partition=CORE` 설정을 적용하지 않는다.
 Task 노드까지 같은 설정을 받으면 모든 NodeManager가 자신을 `CORE`로 보고해 파티션 분리가 무너진다.
+
+직접 `TASK` 파티션을 운영하는 구성이라면 Task NodeManager에는 다음 설정을 적용한다.
+이는 Task를 무라벨로 두는 EMR 기본 구성과는 다른 예시이며, `TASK` 라벨 등록과 Queue 설정이 먼저 준비되어 있어야 한다.
+
+```xml
+<!-- 명시적인 TASK 파티션을 사용하는 Task 노드의 yarn-site.xml -->
+<property>
+  <name>yarn.nodemanager.node-labels.provider</name>
+  <value>config</value>
+</property>
+<property>
+  <name>yarn.nodemanager.node-labels.provider.configured-node-partition</name>
+  <value>TASK</value>
+</property>
+```
+
+Core와 Task의 provider 설정은 노드 역할에 맞춰 따로 배포해야 한다.
+새 Task 노드가 추가될 때도 같은 설정을 받도록 해야 하며, EMR이 제공하는 provider를 사용하는 환경에서는 실제 릴리스의 구성을 확인한 뒤 적용한다.
 
 노드 속성이 자주 달라진다면 `script` provider를 사용할 수도 있다.
 스크립트는 다음과 같은 형식으로 라벨을 출력한다.
@@ -276,6 +301,19 @@ yarn rmadmin -addToClusterNodeLabels \
 Distributed 모드에서도 NodeManager가 보고할 라벨은 ResourceManager가 알고 있는 유효한 라벨이어야 한다.
 다만 EMR이 관리하는 기본 `CORE` 라벨은 EMR의 프로비저닝 과정에서 준비되므로, 정상 구성에 같은 명령을 반복해서 실행할 필요는 없다.
 
+## 두 모드에서 라벨 등록과 매핑을 구분하기
+
+| 구분                | Distributed                                           | Centralized                                         |
+| ------------------- | ----------------------------------------------------- | --------------------------------------------------- |
+| 클러스터 라벨 등록  | `addToClusterNodeLabels` 또는 EMR 프로비저닝          | `addToClusterNodeLabels` 또는 EMR 프로비저닝        |
+| Core·Task 노드 매핑 | 각 NodeManager의 provider가 `CORE` 또는 `TASK`를 보고 | 관리자가 `replaceLabelsOnNode`로 호스트별 라벨 지정 |
+| 새 노드 추가 시     | 역할에 맞는 provider 설정을 받아야 함                 | 새 호스트의 매핑을 등록해야 함                      |
+| 매핑 결과 확인      | `yarn node -status <NodeId>`                          | `yarn node -status <NodeId>`                        |
+
+즉, `addToClusterNodeLabels`는 centralized 전용 명령이 아니다.
+두 모드 모두 ResourceManager에 유효한 라벨이 등록되어 있어야 하며, 차이는 **노드와 라벨의 매핑을 누가 보고하는가**에 있다.
+등록 명령의 구문과 모드별 매핑 방식은 [Hadoop 공식 Node Labels 문서](https://hadoop.apache.org/docs/r3.4.1/hadoop-yarn/hadoop-yarn-site/NodeLabel.html#Configuration)를 기준으로 확인했다.
+
 ---
 
 # Capacity Scheduler에서 라벨 파티션 열기
@@ -301,6 +339,25 @@ Capacity Scheduler에서는 Queue별 접근 권한과 파티션 용량을 설정
   <value>100</value>
 </property>
 ```
+
+위 예시는 `CORE` 파티션의 용량만 설정한다.
+`TASK`를 별도 파티션으로 등록하고 Executor가 사용하도록 구성했다면 `TASK` 용량도 지정해야 한다.
+다음은 `root.default` 하나가 각 라벨 파티션의 용량을 모두 사용하는 단일 Queue 구성에서 추가할 설정이다.
+여러 Queue가 있다면 각 부모 아래 자식 Queue들의 파티션별 capacity 합이 100이 되도록 나눈다.
+
+```xml
+<property>
+  <name>yarn.scheduler.capacity.root.accessible-node-labels.TASK.capacity</name>
+  <value>100</value>
+</property>
+<property>
+  <name>yarn.scheduler.capacity.root.default.accessible-node-labels.TASK.capacity</name>
+  <value>100</value>
+</property>
+```
+
+위 설정은 앞 예시의 `accessible-node-labels=*`와 함께 사용한다. 접근 라벨을 열거하는 구성이라면 부모와 제출 Queue 모두에서 `TASK` 접근이 허용되는지도 확인한다.
+Task 노드가 무라벨인 구성에는 이 `TASK` 파티션 설정을 추가하지 않는다.
 
 Queue 설정을 변경했다면 다음 명령으로 갱신한다.
 
@@ -332,7 +389,7 @@ spark-submit \
 | `spark.yarn.executor.nodeLabelExpression` | Spark Executor가 실행될 파티션         |
 
 EMR의 일반적인 `CORE + DEFAULT` 구성에서는 `TASK` 라벨이 없으므로 Executor Expression을 `TASK`로 지정하면 Executor가 뜨지 않는다.
-이때는 Executor Expression을 생략해 기본 파티션을 사용한다.
+이때는 Queue의 기본 Expression이 비어 있는지 확인한 뒤 Executor Expression을 생략해 기본 파티션을 사용한다.
 
 ```bash
 spark-submit \
@@ -347,6 +404,99 @@ spark-submit \
 
 > [!IMPORTANT]
 > YARN의 `distributed`·`centralized`는 **노드와 라벨을 누가 매핑하는지**에 관한 설정이다. Spark의 `cluster`·`client`는 **Driver가 어디에서 실행되는지**에 관한 배포 모드다. 이름이 비슷해 보여도 서로 다른 축이다.
+
+---
+
+# 운영 사례: Task 메모리는 남는데 Core에 새 AM을 띄울 수 없었다
+
+## 당시 설정과 관찰한 현상
+
+AM을 Core에 두기 위해 다음 설정을 사용했다. Executor의 Node Label Expression은 `TASK`로 지정하지 않은 상태였다.
+
+```properties
+# yarn-site의 AM 기본 배치 설정
+yarn.node-labels.am.default-node-label-expression=CORE
+
+# spark.yarn.executor.nodeLabelExpression은 미지정
+```
+
+관찰한 결과는 AM과 Executor가 모두 Core 노드에서 실행되고, Task 노드의 메모리는 남는 것이었다.
+Core의 자원을 Executor까지 함께 사용하면서 새로운 AM을 할당할 메모리가 부족해졌다.
+
+| 구분          | 관찰한 상태                 | 영향                                                    |
+| ------------- | --------------------------- | ------------------------------------------------------- |
+| Core 노드     | AM과 Executor가 함께 배치됨 | 새 AM을 위한 메모리 부족                                |
+| Task 노드     | 메모리가 남아 있음          | 남는 자원이 AM 실행으로 이어지지 않음                   |
+| 클러스터 전체 | 유휴 메모리가 존재함        | 전체 가용량만으로는 AM 배치 가능 여부를 판단하기 어려움 |
+
+AM은 `CORE`를 요청하므로 Task의 남는 메모리로 대신 실행할 수 없다.
+이미 실행 중인 Executor가 Core 자원을 차지하고 있다면 Task 노드를 늘리는 것만으로 그 자원이 즉시 반환되는 것도 아니다.
+
+> [!NOTE]
+> (당시 EMR·Spark 버전, Core·Task 노드 수와 YARN 가용 메모리, AM·Executor 컨테이너 크기, 새 애플리케이션의 상태와 Diagnostics를 추가해 주세요. 장애 발생일은 글 수정일과 별도로 기록해 주세요.)
+
+## AM을 CORE로 제한해도 Executor가 TASK로 분리되는 것은 아니다
+
+이 사례에서 구분해야 할 것은 **AM의 실행 위치를 제한하는 설정**과 **Executor가 사용할 파티션을 정하는 설정**이다.
+`yarn.node-labels.am.default-node-label-expression=CORE`는 AM의 기본 배치를 정한다. 이 속성 하나로 Executor까지 `CORE`를 요청하게 된다고 해석해서는 안 된다.
+Spark도 AM과 Executor의 Expression을 별도 속성으로 제공한다. [Spark의 YARN 배치 설정](https://spark.apache.org/docs/latest/running-on-yarn.html#configuration)
+
+Executor Expression을 생략했을 때는 Queue의 기본 Expression과 파티션의 배타성까지 봐야 한다.
+
+| 확인할 설정                                          | 해당 조건에서의 동작                                                                                        |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Queue의 `default-node-label-expression=CORE`         | 별도 라벨이 없는 요청이 Queue 기본값인 `CORE`를 사용할 수 있다.                                             |
+| Queue 기본값이 비어 있고 `CORE(exclusive=false)`     | 기본 파티션을 요청한 Executor도 Core의 유휴 자원을 사용할 수 있다. AM 전용 메모리를 예약하는 설정은 아니다. |
+| Task가 `TASK(exclusive=true)`로 매핑되어 있음        | `TASK`를 요청하지 않은 Executor는 이 파티션에 들어갈 수 없다.                                               |
+| Task가 무라벨 `DEFAULT`이고 Queue 기본값도 비어 있음 | Executor Expression을 생략해도 Task를 사용할 수 있다. Core에만 몰렸다면 다른 배치 제약도 확인해야 한다.     |
+
+Queue 기본 Expression과 non-exclusive 파티션의 동작은 [Hadoop Node Labels 문서](https://hadoop.apache.org/docs/r3.4.1/hadoop-yarn/hadoop-yarn-site/NodeLabel.html)에 설명되어 있다.
+예를 들어 **Core는 non-exclusive, Task는 exclusive인 별도 `TASK` 파티션, Executor 요청은 `DEFAULT`**인 조합이라면 Task를 쓰지 못하면서 Core를 사용하는 상황을 설명할 수 있다. 이는 당시 설정이 확인되기 전까지는 가능한 원인이다.
+
+> [!IMPORTANT]
+> 여기서 확인된 경험은 “Executor Expression을 지정하지 않은 환경에서 AM과 Executor가 Core에 몰렸다”는 것이다. “미지정이면 항상 Core로 간다”는 일반 규칙은 아니다. 실제 원인을 확정하려면 당시 라벨 매핑·exclusive 값·Queue 기본값·최종 Spark 설정을 함께 확인해야 한다.
+
+## 원인을 좁히는 확인 순서
+
+1. `yarn cluster --list-node-labels`와 `yarn node -status <NodeId>`로 Task가 무라벨인지 실제 `TASK` 파티션인지, Core·Task의 exclusive 값이 무엇인지 확인한다.
+2. 제출 Queue의 `yarn.scheduler.capacity.<queue-path>.default-node-label-expression`, 라벨 접근 권한과 파티션 capacity를 확인한다. 상위 Queue에서 적용되는 값도 함께 본다.
+3. `spark-defaults.conf`, 제출 옵션, Livy 세션 설정 등에서 최종 `spark.yarn.executor.nodeLabelExpression`을 확인한다. 제출 명령에 없는 값도 공통 설정에 들어 있을 수 있다.
+4. ResourceManager의 노드별 컨테이너 목록과 Spark UI의 Executors 화면을 대조해 Core 메모리 중 AM과 Executor가 각각 얼마나 할당받았는지 확인한다.
+5. Task가 YARN에 정상 등록되어 있는지, Executor 한 개의 메모리·vcore 요청을 수용할 수 있는지 확인한다. OS의 빈 메모리와 YARN이 할당할 수 있는 메모리는 구분한다.
+
+새 AM이 시작되지 않을 때는 Core의 가용 자원 부족과 Queue의 `maximum-am-resource-percent` 한도 도달도 구분해야 한다.
+AM 비율 한도를 올리더라도 이미 Executor에 할당된 메모리가 반환되지는 않는다.
+Cluster 모드에서는 Driver 메모리와 overhead를 포함한 AM 컨테이너가 Core 노드 한 대에 들어갈 수 있어야 한다. 자세한 계산은 [ApplicationMaster 메모리와 대기 진단 글](/blog/spark/emr-yarn-application-master)에서 다룬다.
+
+## 배치 정책에 따라 수정 방향을 나눈다
+
+**실제로 `TASK` 라벨을 구성한 환경**에서 Executor를 Task로 격리하려면 다음과 같이 각각 지정한다.
+이 예시는 `CORE`·`TASK` 매핑과 제출 Queue의 접근 권한·파티션 용량이 준비된 경우에 사용한다.
+
+```bash
+# application.py는 실행할 애플리케이션 파일로 교체한다.
+spark-submit \
+  --master yarn \
+  --deploy-mode cluster \
+  --conf spark.yarn.am.nodeLabelExpression=CORE \
+  --conf spark.yarn.executor.nodeLabelExpression=TASK \
+  application.py
+```
+
+이렇게 제출한 애플리케이션은 AM은 Core, Executor는 Task를 요청한다.
+Task 자원이 부족하면 Executor가 기다리므로, Task 용량과 확장 시간도 함께 고려해야 한다.
+설정 변경만으로 기존 애플리케이션의 Executor가 자동 이동하는 것으로 보아서는 안 되며, 새 애플리케이션이나 새 Livy 세션으로 제출해 배치를 검증한다.
+
+**Task가 무라벨인 EMR 구성**에서는 `TASK`라는 이름만 설정하지 않는다.
+Queue 기본 Expression이 의도치 않게 `CORE`로 지정되어 있다면 기본 파티션을 사용할 수 있도록 바로잡고, Executor의 명시적인 `CORE` 제한도 확인한다.
+다만 `CORE(exclusive=false)`가 유지되면 Core와 Task 양쪽에서 Executor가 실행될 수 있다. Task 활용을 허용하는 것과 Core를 AM 전용으로 격리하는 것은 서로 다른 목표다.
+엄격한 격리가 필요하면 앞에서 설명한 exclusive 설정과 파티션 구성을 검토하되, EMR 릴리스와 Managed Scaling이 지원하는 범위 안에서 설계한다.
+
+> [!NOTE]
+> (실제 원인으로 확인한 설정과 적용한 수정안을 추가해 주세요. 변경 전후 Core의 Executor 수·AM용 가용 메모리, Task의 할당 메모리, 새 AM의 대기 시간을 비교하고, 아직 확인하지 않은 효과는 개선 결과로 단정하지 않습니다.)
+
+이 경험에서 확인한 점은 클러스터 전체의 빈 메모리보다 **AM이 배치될 수 있는 Core 노드에 실제로 남아 있는 자원**이 중요하다는 것이다.
+AM을 Core에 고정했다면 Executor가 같은 자원을 얼마나 사용하는지까지 함께 봐야 한다.
 
 ---
 
@@ -432,5 +582,6 @@ EMR의 일반적인 보호 구성은 Core 노드에만 `CORE`를 붙이고 Task 
 
 ## 관련 글
 
+- [Spark on EMR의 ApplicationMaster — Driver 관계, 메모리, 대기와 재시도](/blog/spark/emr-yarn-application-master)
 - [YARN Capacity Scheduler 실전 가이드](/blog/spark/yarn-fair-vs-capacity-scheduler)
 - [스파크 아키텍쳐](/blog/spark/spark-architecture)
