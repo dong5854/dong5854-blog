@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="434" viewBox="0 0 1200 434">
+<rect width="1200" height="434" rx="20" fill="#0f172a"/>
+<text x="36" y="48" font-family="Arial,Apple SD Gothic Neo,sans-serif" font-size="25" fill="#e2e8f0">백업 예약과 저장소 상태</text>
+<text x="36" y="82" font-family="Arial,Apple SD Gothic Neo,sans-serif" font-size="18" fill="#94a3b8">실제 CLI 출력 재구성 · 원본 터미널 스크린샷 아님</text>
+<text x="36" y="130" font-family="Menlo,Consolas,monospace" font-size="22" fill="#e2e8f0" xml:space="preserve">NAME              SCHEDULE    TIMEZONE      SUSPEND  LAST</text>
+<text x="36" y="168" font-family="Menlo,Consolas,monospace" font-size="22" fill="#a7f3d0" xml:space="preserve">postgres-backup   0 3 * * *   Asia/Seoul    false    &lt;none&gt;</text>
+<text x="36" y="206" font-family="Menlo,Consolas,monospace" font-size="22" fill="#e2e8f0" xml:space="preserve"></text>
+<text x="36" y="244" font-family="Menlo,Consolas,monospace" font-size="22" fill="#e2e8f0" xml:space="preserve">NAME                  STATUS   CAPACITY   CLASS</text>
+<text x="36" y="282" font-family="Menlo,Consolas,monospace" font-size="22" fill="#e2e8f0" xml:space="preserve">postgres-pvc          Bound    5Gi        local-path</text>
+<text x="36" y="320" font-family="Menlo,Consolas,monospace" font-size="22" fill="#a7f3d0" xml:space="preserve">postgres-backup-pvc    Bound    1Gi        local-path</text>
+<text x="36" y="358" font-family="Menlo,Consolas,monospace" font-size="22" fill="#a7f3d0" xml:space="preserve"></text>
+<text x="36" y="396" font-family="Menlo,Consolas,monospace" font-size="22" fill="#e2e8f0" xml:space="preserve">LAST &lt;none&gt;: 정기 실행 전 조회 / 수동 첫 백업은 성공</text>
+</svg>

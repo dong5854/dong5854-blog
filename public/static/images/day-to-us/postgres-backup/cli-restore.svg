@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="472" viewBox="0 0 1200 472">
+<rect width="1200" height="472" rx="20" fill="#0f172a"/>
+<text x="36" y="48" font-family="Arial,Apple SD Gothic Neo,sans-serif" font-size="25" fill="#e2e8f0">첫 백업과 격리된 복원 검증 결과</text>
+<text x="36" y="82" font-family="Arial,Apple SD Gothic Neo,sans-serif" font-size="18" fill="#94a3b8">실제 CLI 출력 재구성 · 원본 터미널 스크린샷 아님</text>
+<text x="36" y="130" font-family="Menlo,Consolas,monospace" font-size="22" fill="#e2e8f0" xml:space="preserve">$ kubectl logs job/postgres-backup-initial-20261014</text>
+<text x="36" y="168" font-family="Menlo,Consolas,monospace" font-size="22" fill="#a7f3d0" xml:space="preserve">Backup completed: [파일명 생략] (37885 bytes)</text>
+<text x="36" y="206" font-family="Menlo,Consolas,monospace" font-size="22" fill="#e2e8f0" xml:space="preserve"></text>
+<text x="36" y="244" font-family="Menlo,Consolas,monospace" font-size="22" fill="#e2e8f0" xml:space="preserve"> restored_tables</text>
+<text x="36" y="282" font-family="Menlo,Consolas,monospace" font-size="22" fill="#e2e8f0" xml:space="preserve">-----------------</text>
+<text x="36" y="320" font-family="Menlo,Consolas,monospace" font-size="22" fill="#a7f3d0" xml:space="preserve">              11</text>
+<text x="36" y="358" font-family="Menlo,Consolas,monospace" font-size="22" fill="#e2e8f0" xml:space="preserve">(1 row)</text>
+<text x="36" y="396" font-family="Menlo,Consolas,monospace" font-size="22" fill="#e2e8f0" xml:space="preserve"></text>
+<text x="36" y="434" font-family="Menlo,Consolas,monospace" font-size="22" fill="#a7f3d0" xml:space="preserve">Restore verified: [파일명 생략]</text>
+</svg>

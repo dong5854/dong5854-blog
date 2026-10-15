@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="580" viewBox="0 0 1200 580">
+<rect width="1200" height="580" rx="24" fill="#f8fafc"/>
+<defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L0,6 L9,3 z" fill="#64748b"/></marker></defs>
+<text x="40" y="58" font-family="Arial,Apple SD Gothic Neo,Malgun Gothic,sans-serif" font-size="30" fill="#0f172a">PVC의 영속성과 백업의 역할</text>
+<text x="40" y="96" font-family="Arial,Apple SD Gothic Neo,Malgun Gothic,sans-serif" font-size="20" fill="#334155">현재 구성: 하나의 홈 서버 · 같은 물리 디스크 · 서로 다른 PVC</text>
+<rect x="45" y="155" width="495" height="260" rx="16" fill="white" stroke="#4f46e5" stroke-width="3"/>
+<text x="67" y="195" font-family="Arial,Apple SD Gothic Neo,Malgun Gothic,sans-serif" font-size="24" fill="#4f46e5">운영 데이터 / postgres-pvc</text>
+<text x="67" y="233" font-family="Arial,Apple SD Gothic Neo,Malgun Gothic,sans-serif" font-size="20" fill="#334155">PostgreSQL 16 · 요청 용량 5Gi</text>
+<text x="67" y="263" font-family="Arial,Apple SD Gothic Neo,Malgun Gothic,sans-serif" font-size="20" fill="#334155">앱이 읽고 쓰는 현재 데이터</text>
+<text x="67" y="293" font-family="Arial,Apple SD Gothic Neo,Malgun Gothic,sans-serif" font-size="20" fill="#334155">잘못 삭제한 행도 현재 상태에 반영됨</text>
+<rect x="660" y="155" width="495" height="260" rx="16" fill="white" stroke="#047857" stroke-width="3"/>
+<text x="682" y="195" font-family="Arial,Apple SD Gothic Neo,Malgun Gothic,sans-serif" font-size="24" fill="#047857">시점별 사본 / postgres-backup-pvc</text>
+<text x="682" y="233" font-family="Arial,Apple SD Gothic Neo,Malgun Gothic,sans-serif" font-size="20" fill="#334155">pg_dump 아카이브 · 요청 용량 1Gi</text>
+<text x="682" y="263" font-family="Arial,Apple SD Gothic Neo,Malgun Gothic,sans-serif" font-size="20" fill="#334155">매일 03:00 KST · 최근 30일 보관</text>
+<text x="682" y="293" font-family="Arial,Apple SD Gothic Neo,Malgun Gothic,sans-serif" font-size="20" fill="#334155">이전 백업 시점으로 별도 복원 가능</text>
+<path d="M550,285 L650,285" fill="none" stroke="#64748b" stroke-width="3" marker-end="url(#arrow)"/>
+<text x="40" y="540" font-family="Arial,Apple SD Gothic Neo,Malgun Gothic,sans-serif" font-size="20" fill="#334155">두 PVC가 있어도 서버·디스크가 고장 나면 함께 잃을 수 있다. 외부 사본은 아직 미적용이다.</text>
+</svg>
