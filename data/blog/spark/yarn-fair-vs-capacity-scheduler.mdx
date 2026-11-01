@@ -24,12 +24,13 @@ Spark 기반 JupyterHub 환경을 운영하다 보면 심심치 않게 들어오
 이처럼 한정된 클러스터 리소스를 공유하는 환경에서 어떤 애플리케이션(Job)에 얼마만큼의 리소스(Container)를 배분할지 결정하는 ResourceManager의 핵심 컴포넌트가 YARN Scheduler다.
 
 YARN의 스케줄러는 플러그인 방식으로 동작하며 대표적인 세 가지는 다음과 같다.
-![YARN 스케줄러별 클러스터 자원 할당 방식](/static/images/editor/6566f837-4b13-4d6c-83c3-041f385b6d72.png)
+![YARN 스케줄러별 클러스터 자원 할당 방식(Gemini 생성 이미지)](/static/images/editor/6566f837-4b13-4d6c-83c3-041f385b6d72.png)
 
-<Source title="Gemini 생성" />- **FIFO Scheduler**: 먼저 제출된 애플리케이션에 리소스를 순차 할당
-(공유 클러스터에는 부적합) - **Capacity Scheduler**: Hadoop 기본값으로 조직/팀 단위의 큐(Queue)별
-리소스 용량 보장 - **Fair Scheduler**: 실행 중인 애플리케이션들에 리소스를 공평하게 분배하며 동적
-할당에 강점
+- **FIFO Scheduler**: 먼저 제출된 애플리케이션에 리소스를 순차 할당(공유 클러스터에는 부적합)
+- **Capacity Scheduler**: Hadoop 기본값으로 조직/팀 단위의 큐(Queue)별
+  리소스 용량 보장
+- **Fair Scheduler**: 실행 중인 애플리케이션들에 리소스를 공평하게 분배하며 동적
+  할당에 강점
 
 <Source
   title="Apache Hadoop 공식 문서 — YARN"
