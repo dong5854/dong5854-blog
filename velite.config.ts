@@ -1,12 +1,5 @@
-import { defineCollection, defineConfig, s } from 'velite'
-import remarkGfm from 'remark-gfm'
-import { remarkCodeTitles } from './lib/remark/codeTitles'
-import { remarkImgToJsx } from './lib/remark/convertImages'
-import rehypeSlug from 'rehype-slug'
-import rehypeAutolinkHeadings from 'rehype-autolink-headings'
-import rehypePrismPlus from 'rehype-prism-plus'
-import remarkMath from 'remark-math'
-import rehypeKatex from 'rehype-katex'
+import { defineCollection, s, type UserConfig } from 'velite'
+import { mdxOptions } from './lib/mdx-options'
 const siteUrl = 'https://dong5854-blog-lac-one.vercel.app/'
 const socialBanner = '/static/images/twitter-card.png'
 
@@ -84,19 +77,13 @@ const authors = defineCollection({
     }),
 })
 
-export default defineConfig({
+const config: UserConfig = {
   root: 'data',
   output: {
     assets: 'public/static/velite',
   },
   collections: { blogs, authors },
-  mdx: {
-    remarkPlugins: [remarkMath, remarkGfm, remarkCodeTitles, remarkImgToJsx],
-    rehypePlugins: [
-      rehypeSlug,
-      rehypeAutolinkHeadings,
-      rehypeKatex,
-      [rehypePrismPlus as any, { defaultLanguage: 'js', ignoreMissing: true }],
-    ],
-  },
-})
+  mdx: mdxOptions,
+}
+
+export default config

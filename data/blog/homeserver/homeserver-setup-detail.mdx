@@ -55,12 +55,12 @@ edge-gw-nginx   NodePort   443:31040/TCP
 
 컨테이너 내부 포트는 443이지만 노드 외부에서는 **31040**으로만 들어올 수 있습니다. 이때 공유기에서 외부/내부 포트를 **비대칭으로** 매핑해 줍니다.
 
-| 항목 | 값 |
-|------|-----|
-| 외부(WAN) 포트 | **443** |
-| 내부 IP | `192.168.0.100` (서버 사설 IP) |
-| 내부 포트 | **31040** (NodePort) |
-| 프로토콜 | TCP |
+| 항목           | 값                             |
+| -------------- | ------------------------------ |
+| 외부(WAN) 포트 | **443**                        |
+| 내부 IP        | `192.168.0.100` (서버 사설 IP) |
+| 내부 포트      | **31040** (NodePort)           |
+| 프로토콜       | TCP                            |
 
 > [!WARNING]
 > 외부 포트도 `31040`으로 잡으면 Cloudflare proxy가 origin으로 443으로 보내기 때문에 연결이 실패합니다. **외부는 반드시 443**, 내부는 NodePort 그대로여야 합니다.
@@ -227,7 +227,7 @@ kubectl edit configmap argocd-cmd-params-cm -n argocd
 
 ```yaml
 data:
-  server.insecure: "true"
+  server.insecure: 'true'
 ```
 
 설정 후 ArgoCD 서버를 재시작합니다.
@@ -287,20 +287,20 @@ ISP가 443 인바운드를 막아 두었다면 Cloudflare에서 origin port를 �
 
 사용자 ↔ Cloudflare 구간은 그대로 443을 쓰고 Cloudflare ↔ origin 구간만 다른 포트로 바꿉니다. 설정 위치는 Cloudflare 대시보드의 **Rules → Origin Rules**입니다.
 
-| 단계 | 값 |
-|------|-----|
-| Rule name | `bypass-isp-443-block` |
+| 단계                       | 값                                     |
+| -------------------------- | -------------------------------------- |
+| Rule name                  | `bypass-isp-443-block`                 |
 | If incoming requests match | `Hostname` `equals` `*.movingzero.org` |
-| Then | `Rewrite to → Dynamic` |
-| Origin Port | `8443` |
+| Then                       | `Rewrite to → Dynamic`                 |
+| Origin Port                | `8443`                                 |
 
 이렇게 두면 Cloudflare는 origin에 `8443`으로 연결합니다. 공유기 포워딩도 그에 맞춰 한 줄을 더 추가합니다.
 
-| 항목 | 값 |
-|------|-----|
-| 외부(WAN) 포트 | **8443** |
-| 내부 IP | `192.168.0.100` |
-| 내부 포트 | **31040** |
+| 항목           | 값              |
+| -------------- | --------------- |
+| 외부(WAN) 포트 | **8443**        |
+| 내부 IP        | `192.168.0.100` |
+| 내부 포트      | **31040**       |
 
 ---
 
@@ -336,6 +336,6 @@ curl -v --resolve argocd.movingzero.org:443:<공인IP> https://argocd.movingzero
 
 ---
 
-<p className="text-sm text-gray-500 dark:text-gray-400">
+<div className="text-sm text-gray-500 dark:text-gray-400">
   이 글은 작업 내용을 AI의 도움을 받아 정리했습니다.
-</p>
+</div>

@@ -33,6 +33,11 @@ const Header = () => {
               {link.title}
             </Link>
           ))}
+        {process.env.NODE_ENV === 'development' && (
+          <Link href="/dev/editor" className="font-medium text-emerald-600">
+            글 편집
+          </Link>
+        )}
         <SearchButton />
         <ThemeSwitch />
         <MobileNav />

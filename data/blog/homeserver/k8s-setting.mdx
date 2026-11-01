@@ -761,12 +761,12 @@ spec:
 
 홈서버는 물리 자원이 한정돼 있어서 리소스 관리가 중요합니다. 각 워크로드별 할당량을 모아 보면 다음과 같습니다.
 
-| 워크로드 | CPU Request | CPU Limit | Memory Request | Memory Limit |
-|---|---|---|---|---|
-| Frontend | 100m | 200m | 128Mi | 256Mi |
-| Backend | 200m | 400m | 256Mi | 512Mi |
-| PostgreSQL | 200m | 500m | 512Mi | 1024Mi |
-| **합계** | **500m** | **1100m** | **896Mi** | **1792Mi** |
+| 워크로드   | CPU Request | CPU Limit | Memory Request | Memory Limit |
+| ---------- | ----------- | --------- | -------------- | ------------ |
+| Frontend   | 100m        | 200m      | 128Mi          | 256Mi        |
+| Backend    | 200m        | 400m      | 256Mi          | 512Mi        |
+| PostgreSQL | 200m        | 500m      | 512Mi          | 1024Mi       |
+| **합계**   | **500m**    | **1100m** | **896Mi**      | **1792Mi**   |
 
 단일 노드에서 모든 워크로드를 굴리기 때문에 레플리카는 전부 1개입니다. 홈서버 용도에서는 고가용성보다 **자원 효율성**이 우선입니다.
 
@@ -798,6 +798,6 @@ spec:
 
 ---
 
-<p className="text-sm text-gray-500 dark:text-gray-400">
+<div className="text-sm text-gray-500 dark:text-gray-400">
   이 글은 작업 내용을 AI의 도움을 받아 정리했습니다.
-</p>
+</div>

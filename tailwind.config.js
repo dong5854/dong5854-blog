@@ -37,6 +37,8 @@ module.exports = {
               },
               code: { color: theme('colors.primary.400') },
             },
+            'blockquote p:first-of-type::before': { content: 'none' },
+            'blockquote p:last-of-type::after': { content: 'none' },
             'h1,h2': {
               fontWeight: '700',
               letterSpacing: theme('letterSpacing.tight'),
