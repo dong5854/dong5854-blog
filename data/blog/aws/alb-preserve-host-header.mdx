@@ -1,0 +1,92 @@
+---
+title: 'AWS ALB에서 Preserve host header로 원래 Host 헤더 유지하기'
+date: '2026-10-09'
+tags: ['aws', 'alb', 'http', 'ai generated']
+draft: true
+summary: 'ALB의 Preserve host header 설정과 기본 Host 헤더 변경 규칙을 정리하고, 설정 방법과 백엔드에서 확인할 지점을 다룬다.'
+---
+
+이하 AI 작성 초안
+
+## Host 헤더를 그대로 전달하고 싶다면
+
+ALB 뒤에 애플리케이션을 두면 연결 대상과 HTTP 요청의 `Host`를 구분해야 한다.
+ALB가 내부 타겟으로 연결한다고 해서 `Host`도 타겟의 IP 주소가 되어야 하는 것은 아니다.
+애플리케이션은 이 헤더를 보고 도메인별 요청을 처리하거나 리다이렉트 주소를 만들 수 있다.
+
+클라이언트가 보낸 `Host` 값을 ALB에서 수정하지 않고 전달하려면 **Preserve host header**를 켠다.
+속성 이름은 `routing.http.preserve_host_header.enabled`이고, 기본값은 `false`다. [AWS ALB 속성 설명](https://docs.aws.amazon.com/cli/latest/reference/elbv2/modify-load-balancer-attributes.html)
+
+예를 들어 다음 요청에서 보존하려는 값은 `service.example.com:8443`이다.
+
+```http
+GET /login HTTP/1.1
+Host: service.example.com:8443
+```
+
+## 꺼져 있으면 항상 타겟 주소로 바뀔까?
+
+그렇지는 않다. 기본 동작은 리스너 포트와 요청 형식에 따라 달라진다.
+
+| 요청 조건                        | 클라이언트의 Host          | 보존 꺼짐                  | 보존 켜짐                  |
+| -------------------------------- | -------------------------- | -------------------------- | -------------------------- |
+| 443 리스너, 일반 경로 요청       | `service.example.com`      | `service.example.com`      | `service.example.com`      |
+| 443 리스너, Host에 포트 포함     | `service.example.com:8443` | `service.example.com`      | `service.example.com:8443` |
+| 8080 리스너, Host에 포트 없음    | `service.example.com`      | `service.example.com:8080` | `service.example.com`      |
+| 443 리스너, 아래의 절대 URL 요청 | `service.example.com`      | `alb.example.net`          | `service.example.com`      |
+
+마지막 행은 요청 줄에 전체 URL이 들어 있는 경우다.
+
+```http
+GET https://alb.example.net/login HTTP/1.1
+Host: service.example.com
+```
+
+보존이 꺼져 있으면 80·443 리스너는 `Host`의 포트를 제거하고, 그 외 리스너는 포트가 없을 때 리스너 포트를 붙인다. 절대 URL 요청에서는 URL의 호스트가 사용될 수 있다.
+따라서 “타겟 자신의 주소로 덮어쓴다”보다는 **“ALB가 Host를 변경하는 것을 막는다”**고 설명하는 편이 정확하다. [AWS의 Host 헤더 보존 규칙과 예시](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/edit-load-balancer-attributes.html#host-header-preservation)
+
+## 설정 방법
+
+### AWS 콘솔
+
+EC2 콘솔에서 **Load Balancers → 대상 ALB → Attributes → Edit → Packet handling → Preserve host header**를 켜고 저장한다. 타겟 그룹이 아닌 ALB의 속성이다. [AWS 콘솔 설정 안내](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/edit-load-balancer-attributes.html#host-header-preservation)
+
+### AWS CLI
+
+아래 ARN은 실제 ALB ARN으로 교체한다.
+
+```bash
+aws elbv2 modify-load-balancer-attributes \
+  --load-balancer-arn 'arn:aws:elasticloadbalancing:ap-northeast-2:123456789012:loadbalancer/app/my-alb/0123456789abcdef' \
+  --attributes Key=routing.http.preserve_host_header.enabled,Value=true
+```
+
+변경 후에는 속성을 조회해 `Value`가 `true`인지 확인한다.
+
+```bash
+aws elbv2 describe-load-balancer-attributes \
+  --load-balancer-arn 'arn:aws:elasticloadbalancing:ap-northeast-2:123456789012:loadbalancer/app/my-alb/0123456789abcdef' \
+  --query "Attributes[?Key=='routing.http.preserve_host_header.enabled']" \
+  --output table
+```
+
+속성 변경과 조회 명령은 각각 [modify-load-balancer-attributes](https://docs.aws.amazon.com/cli/latest/reference/elbv2/modify-load-balancer-attributes.html), [describe-load-balancer-attributes](https://docs.aws.amazon.com/cli/latest/reference/elbv2/describe-load-balancer-attributes.html)에서 확인할 수 있다.
+
+## 적용 후에는 백엔드가 받은 값을 확인한다
+
+설정 조회는 ALB 속성이 바뀌었는지만 보여준다. 실제 요청에 대해서는 백엔드 로그나 헤더 확인용 엔드포인트에서 수신한 `Host`를 확인한다.
+
+테스트 환경에 8080 리스너와 `/debug/headers` 엔드포인트가 있다면 다음처럼 요청할 수 있다. 도메인과 경로는 환경에 맞게 교체한다.
+
+```bash
+curl -v 'http://my-alb.example.net:8080/debug/headers' \
+  -H 'Host: service.example.com'
+```
+
+위 조건에서는 보존이 꺼져 있을 때 `service.example.com:8080`, 켜져 있을 때 `service.example.com`을 백엔드에서 기대할 수 있다.
+`curl -v`에 표시되는 송신 헤더만으로는 ALB를 거친 뒤의 값을 알 수 없으므로 서버 쪽 결과와 비교한다.
+
+ALB 뒤에 Nginx 같은 프록시가 더 있다면 그 구간의 헤더 전달 설정도 확인해야 한다.
+ALB에서 원본을 보존했더라도 뒤쪽 프록시가 값을 다시 바꾸는 구성이라면 애플리케이션이 받는 값은 달라질 수 있다.
+
+> (실제 문제가 발생한 요청 URL, 리스너 포트, 변경 전후 백엔드에서 받은 Host 값, 영향받은 라우팅이나 리다이렉트 동작을 여기에 추가해 주세요.)
