@@ -15,7 +15,7 @@ summary: >-
   Spark 애플리케이션의 리소스 대기와 종료 문제를 진단하는 방법을 정리한다.
 ---
 
-> 이 글은 Hadoop·Spark 공식 문서를 바탕으로 한 설정·진단 가이드다. 실제 클러스터의 변경값과 성능 전후 결과를 제시하는 사례 보고는 아니다.
+> 이 글은 Hadoop과 Spark 공식 문서를 바탕으로 한 설정과 진단 가이드다. 실제 클러스터의 변경값과 성능 전후 결과를 제시하는 사례 보고는 아니다.
 
 # 들어가며
 
@@ -134,7 +134,7 @@ AM 힙을 4GiB로 설정하면 오버헤드까지 더한 컨테이너 요청량�
 ```
 
 > [!WARNING]
-> AM과 Executor가 같은 자원을 경쟁하는 환경에서는 1.0이 Executor 여유를 줄일 수 있다. 반면 AWS는 Managed Scaling과 Node Label을 함께 사용하며 여러 앱을 병렬 실행하는 구성에서 1을 안내한다. 파티션·릴리스 조건 없이 일괄 금지하거나 권장하지 않는다. [AWS Managed Scaling](https://docs.aws.amazon.com/emr/latest/ManagementGuide/emr-managed-scaling.html) 예시값을 그대로 권장값으로 사용하지 말고 AM 크기와 목표 동시 실행 수 및 Executor에 필요한 자원을 기준으로 조정한다.
+> AM과 Executor가 같은 자원을 경쟁하는 환경에서는 1.0이 Executor 여유를 줄일 수 있다. 반면 AWS는 Managed Scaling과 Node Label을 함께 사용하며 여러 앱을 병렬 실행하는 구성에서 1을 안내한다. 파티션과 릴리스 조건 없이 일괄 금지하거나 권장하지 않는다. [AWS Managed Scaling](https://docs.aws.amazon.com/emr/latest/ManagementGuide/emr-managed-scaling.html) 예시값을 그대로 권장값으로 사용하지 말고 AM 크기와 목표 동시 실행 수 및 Executor에 필요한 자원을 기준으로 조정한다.
 
 **방법 2: 큐별로 개별 설정**
 
