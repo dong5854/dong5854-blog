@@ -4,7 +4,7 @@ lastmod: '2026-11-02'
 date: '2024-05-19'
 tags: ['web']
 draft: false
-summary: 구글 검색엔진의 동작 원리를 파악해 검색엔진 최적화(SEO) 수행하기
+summary: 구글 검색의 크롤링과 색인 원리를 알아보고, Next.js·Vercel 블로그의 대표 URL, 메타데이터, 사이트맵을 정리한 과정을 기록한다.
 ---
 
 웹사이트는 주로 구글 혹은 네이버 검색을 통해 노출되기 때문에 구글 또는 네이버 검색을 했을 때 내가 만든 웹 사이트가 잘 나와야지만 사용자들이 방문할 확률이 올라간다.
@@ -68,7 +68,119 @@ Google은 검색어와 관련된 페이지를 색인에서 찾고 여러 신호�
 
 여기서 페이지 콘텐츠의 품질이란 다양한 요소로 평가되는데 여기는 콘텐츠의 독창성 것들이 포함되는데, 검색엔진 최적화를 위해 지킬 수 있는 핵심사항은 [Google 검색 Essentials](https://developers.google.com/search/docs/essentials?hl=ko#key-best-practices)에 나와있다.
 
-참고자료:<br/>
+## Next.js·Vercel 블로그에 직접 적용하기
+
+2026년 11월 2일, 이 블로그의 SEO 설정을 점검했다. 블로그는 Next.js App Router와 MDX를 사용하고 Vercel에 배포한다. 도메인은 Cloudflare에서 관리하며, 실제 운영 주소는 `https://blog.movingzero.org`다.
+
+코드를 확인해 보니 SEO 기능이 없는 상태는 아니었다. `app/sitemap.ts`와 `app/robots.ts`가 있었고, 글마다 제목과 요약, Open Graph 메타데이터, `BlogPosting` JSON-LD도 생성하고 있었다. 문제는 설정에 남아 있던 예전 주소와 일부 누락된 값이었다.
+
+### 1. 실제 운영 도메인으로 URL 통일하기
+
+기존 `siteUrl`은 아래처럼 Vercel 기본 주소였고, 끝에 `/`가 붙어 있었다.
+
+```ts
+siteUrl: 'https://dong5854-blog-lac-one.vercel.app/'
+```
+
+사이트맵과 구조화 데이터에서는 `${siteUrl}/${post.path}`로 경로를 붙였다. 결과적으로 실제 도메인과 다른 주소가 생성됐고, 호스트 뒤에 `//`도 들어갔다. 운영 중이던 `robots.txt`도 예전 Vercel 주소의 사이트맵을 안내하고 있었다.
+
+대표 주소를 아래처럼 바꾸고, Velite 설정에 따로 적혀 있던 주소도 같은 설정을 참조하도록 수정했다.
+
+```ts
+// data/siteMetadata.ts
+siteUrl: 'https://blog.movingzero.org'
+```
+
+```ts
+// velite.config.ts
+import siteMetadata from './data/siteMetadata'
+
+const { siteUrl, socialBanner } = siteMetadata
+```
+
+루트 레이아웃의 `metadataBase`도 이 값을 사용하므로 canonical과 공유용 URL의 기준이 함께 바뀐다. 이미지 주소는 문자열을 이어 붙이는 대신 `new URL(image, siteUrl).href`로 생성했다. 구조화 데이터의 이미지도 절대 URL로 만들고, 이미지가 없을 때는 기본 배너를 사용하도록 했다.
+
+canonical은 중복 URL 가운데 대표 주소를 검색엔진에 알려주는 신호다. Google이 반드시 그 주소를 선택한다는 뜻은 아니므로, 내부 링크와 사이트맵, 리디렉션도 같은 주소를 가리키도록 맞췄다.
+
+### 2. 기존 Vercel 주소를 영구 리디렉션하기
+
+도메인을 연결한 뒤에도 예전 `vercel.app` 주소에서 같은 글이 열리고 있었다. Vercel 프로젝트의 기존 도메인에 `blog.movingzero.org`를 대상으로 하는 308 영구 리디렉션을 설정했다.
+
+검증할 때는 홈뿐 아니라 글 경로와 쿼리 문자열도 확인했다.
+
+```text
+https://dong5854-blog-lac-one.vercel.app/blog/spark/spark-architecture?test=1
+    ↓ 308
+https://blog.movingzero.org/blog/spark/spark-architecture?test=1
+```
+
+이 설정은 Vercel의 도메인 설정에 저장된다. 소스 코드를 복제하는 것만으로 리디렉션까지 복제되지는 않는다. Cloudflare의 DNS를 바꾸지 않고 기존 Vercel 주소에서 들어오는 요청을 대표 주소로 보내도록 처리했다.
+
+### 3. 일반 메타 설명 누락 보완하기
+
+공통 메타데이터 함수는 전달받은 `description`을 Open Graph에만 넣고 있었다. 일반 `<meta name="description">`에도 페이지별 설명이 반영되도록 수정했다. Twitter 카드에도 같은 설명을 넣었다.
+
+```ts
+return {
+  title,
+  description: description || siteMetadata.description,
+  // Open Graph와 Twitter 카드에도 설명을 설정한다.
+}
+```
+
+블로그 전체 설명은 `dong5854's 블로그`에서 실제 글의 주제를 알 수 있는 문장으로 바꿨다.
+
+> Spark·AWS EMR·백엔드 개발 경험과 문제 해결 과정을 기록하는 기술 블로그입니다.
+
+개별 글은 기존처럼 MDX의 `summary`를 설명으로 사용한다. 메타 설명을 넣었다고 검색 결과에 그대로 표시되는 것은 아니다. Google은 검색어와 본문에 따라 다른 문구를 선택할 수 있다.
+
+### 4. 사이트맵과 robots.txt 정리하기
+
+글의 사이트맵 수정일은 `lastmod`가 있으면 그 값을, 없으면 작성일을 사용한다. 반면 목록 페이지는 실제 콘텐츠 변경 여부와 관계없이 생성 시점을 수정일로 넣고 있었다. 관리하지 않는 수정일은 생략하고, 사이트맵에 소개 페이지인 `/about`을 추가했다.
+
+수정 후 `robots.txt`는 아래와 같이 대표 도메인의 사이트맵을 안내한다.
+
+```text
+User-Agent: *
+Allow: /
+
+Host: https://blog.movingzero.org
+Sitemap: https://blog.movingzero.org/sitemap.xml
+```
+
+여기서 `Host` 줄이 Google의 대표 URL을 정해주는 것은 아니다. 대표 URL은 canonical, 사이트맵, 리디렉션 등으로 일관되게 전달해야 한다. 또한 `robots.txt`의 크롤링 허용과 검색 결과의 색인 여부는 서로 다른 문제다.
+
+### 5. 빌드 결과와 운영 응답 검증하기
+
+로컬에서는 전체 빌드와 ESLint를 실행하고, 생성된 HTML의 canonical과 메타 설명을 확인했다. Vercel 운영 배포 후에는 사이트맵에 포함된 29개 페이지를 다시 요청했다. 이 숫자는 당시 공개 글과 기본 페이지를 합친 값이다.
+
+- `robots.txt`가 대표 도메인의 사이트맵을 안내하는지 확인했다.
+- 사이트맵 URL에 예전 도메인이나 중복 슬래시가 없는지 확인했다.
+- 각 페이지가 정상 응답하고 자신의 주소를 canonical로 지정하는지 확인했다.
+- 메타 설명이 있고, 메타 robots와 응답 헤더에 `noindex`가 없는지 확인했다.
+- 글 페이지에 JSON-LD가 포함되어 있는지 확인했다.
+
+JSON-LD가 있다는 확인은 Google의 구조화 데이터 적격성 검사와 다르다. 이번 검증만으로 리치 결과 표시나 검색 노출 순위까지 확인한 것은 아니다.
+
+작업 중 로컬 Node.js도 보안 릴리스인 `22.23.4`로 업데이트했다. `.nvmrc`와 nvm 기본 버전은 `22.23.4`로 맞추고, Vercel에는 `package.json`의 `engines.node`로 `22.x`를 지정했다. Vercel의 세부 패치 버전은 플랫폼이 관리하므로 로컬 버전을 올렸다는 사실만으로 운영 런타임의 정확한 패치 버전을 단정하지 않는다.
+
+### 6. Google Search Console 등록하기
+
+코드에서 사이트맵을 생성하고 배포하는 작업과 Google에 사이트 소유권을 확인하는 작업은 별개다. Search Console에는 대표 주소인 `https://blog.movingzero.org/`를 URL 접두어 속성으로 추가하고, HTML 파일 방식으로 소유권을 확인하는 절차를 진행했다.
+
+URL 접두어 속성은 지정한 프로토콜과 주소를 기준으로 관리한다. 모든 하위 도메인과 프로토콜을 묶어 관리하는 도메인 속성과는 범위가 다르다. 이번에는 블로그 주소를 대상으로 하고, Vercel에서 인증 파일을 직접 제공할 수 있어 이 방식을 선택했다.
+
+소유권 확인이 끝나면 Sitemaps 메뉴에서 `https://blog.movingzero.org/sitemap.xml`을 제출한다. 인증 파일은 확인 후에도 유지해야 한다. Google이 소유권을 다시 확인할 수 있기 때문이다.
+
+사이트맵 제출은 URL 발견을 돕는 절차이며 색인 생성이나 상위 노출을 보장하지 않는다. 이후에는 Search Console의 처리 상태와 페이지 색인 보고서를 확인하고, 실제 검색어별 노출과 클릭이 쌓이면 글의 제목과 내용을 개선할 계획이다.
+
+## 참고자료
+
+- [Google 사이트 소유권 확인](https://support.google.com/webmasters/answer/9008080?hl=ko)
+- [Google 사이트맵 제작 및 제출](https://developers.google.com/search/docs/crawling-indexing/sitemaps/build-sitemap?hl=ko)
+- [Vercel 도메인 배포 및 리디렉션](https://vercel.com/docs/domains/working-with-domains/deploying-and-redirecting)
+- [Vercel Node.js 버전 관리](https://vercel.com/docs/functions/runtimes/node-js/node-js-versions)
+
 https://developers.google.com/search/docs/fundamentals/seo-starter-guide?hl=ko
 https://searchadvisor.naver.com/guide/seo-help
 https://developers.google.com/search/docs/fundamentals/how-search-works?hl=ko

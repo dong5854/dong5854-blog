@@ -2,6 +2,9 @@
   "name": "dong5854-blog",
   "version": "1.0.0",
   "private": true,
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "start": "next dev --hostname 127.0.0.1",
     "dev": "concurrently \"cross-env INIT_CWD=$PWD next dev --hostname 127.0.0.1\" \"velite dev\"",

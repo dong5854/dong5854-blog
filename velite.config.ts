@@ -1,7 +1,7 @@
 import { defineCollection, s, type UserConfig } from 'velite'
 import { mdxOptions } from './lib/mdx-options'
-const siteUrl = 'https://dong5854-blog-lac-one.vercel.app/'
-const socialBanner = '/static/images/twitter-card.png'
+import siteMetadata from './data/siteMetadata'
+const { siteUrl, socialBanner } = siteMetadata
 
 const blogs = defineCollection({
   name: 'Blog',
@@ -41,7 +41,10 @@ const blogs = defineCollection({
           datePublished: data.date,
           dateModified: data.lastmod || data.date,
           description: data.summary,
-          image: data.images ? data.images[0] : socialBanner,
+          image: new URL(
+            (Array.isArray(data.images) ? data.images[0] : data.images) || socialBanner,
+            siteUrl
+          ).href,
           url: `${siteUrl}/${slugPath}`,
         },
       }

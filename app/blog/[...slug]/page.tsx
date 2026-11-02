@@ -39,12 +39,12 @@ export async function generateMetadata({
   const modifiedAt = new Date(post.lastmod || post.date).toISOString()
   const authors = authorDetails.map((author) => author.name)
   let imageList = [siteMetadata.socialBanner]
-  if (post.images) {
+  if (post.images && post.images.length > 0) {
     imageList = typeof post.images === 'string' ? [post.images] : post.images
   }
   const ogImages = imageList.map((img) => {
     return {
-      url: img.includes('http') ? img : siteMetadata.siteUrl + img,
+      url: new URL(img, siteMetadata.siteUrl).href,
     }
   })
 
