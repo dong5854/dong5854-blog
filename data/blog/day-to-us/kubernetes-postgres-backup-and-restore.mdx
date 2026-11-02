@@ -1,14 +1,11 @@
 ---
 title: 'Kubernetes의 DB는 누가 백업할까: Day To Us의 일일 백업과 복원 검증'
+lastmod: '2026-11-02'
 date: '2026-10-15'
 tags: ['day-to-us', 'ai-learning', 'ai generated', 'kubernetes']
 draft: false
 summary: 'PostgreSQL을 Kubernetes에 띄운 상태에서 출발해 CronJob, 별도 PVC, 30일 보관 정책과 격리된 복원 검증을 구성하고 백업이 보호하는 범위를 확인한다.'
 ---
-
----
-
-이하 AI 작성 초안
 
 ## “지금 k8s로만 띄워져 있을 텐데, 백업할 수 있을까?”
 
@@ -434,4 +431,4 @@ ssh homeserver 'df -h /'
 
 이 글의 실제 구현과 운영 절차는 [db-backup.yaml](https://github.com/dong5854/day-to-us-backend/blob/a9b0ee8/k8s/base/db-backup.yaml), [복원 검증 Job](https://github.com/dong5854/day-to-us-backend/blob/a9b0ee8/k8s/checks/db-restore-check.yaml), [백업 운영 문서](https://github.com/dong5854/day-to-us-backend/blob/a9b0ee8/docs/database-backup.md)에 남아 있다.
 
-기존 클러스터 구성은 [홈 서버 Kubernetes 구성 기록](/blog/homeserver/k8s-setting), GitOps 흐름은 [Argo CD 계정과 GitOps](/blog/homeserver/argocd-account-and-gitops)에서 이어서 볼 수 있다.
+기존 클러스터 구성은 [홈 서버 Kubernetes 구성 기록](/blog/homeserver/k8s-setting), GitOps 구성 기록은 별도 초안에서 정리 중이다.

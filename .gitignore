@@ -55,3 +55,6 @@ tsconfig.tsbuildinfo
 
 # AI agent workspace
 .antigravitycli/
+
+# Local content audits
+/docs/audits/

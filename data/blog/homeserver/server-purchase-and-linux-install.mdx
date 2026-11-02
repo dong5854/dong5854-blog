@@ -1,5 +1,6 @@
 ---
-title: '홈서버 구축기 1 - 서버 구입 및 리눅스 설치'
+title: '홈서버 구축기 1 - 서버 구입과 조립, Ubuntu 설치 기록'
+lastmod: '2026-11-02'
 date: '2026-02-01'
 tags: ['homeserver', 'linux']
 draft: false
@@ -21,7 +22,6 @@ summary: 서버 구입 과정과 리눅스 설치 방법 정리
 ### 3. 물리적으로 소유하는 서버에 대한 욕구
 
 솔직히 가장 큰 이유입니다. 가상 머신이 아니라 내 공간에 놓인 물리 장비를 직접 만지고 관리하고 싶었습니다.
-
 
 # 구입 목록
 
@@ -51,11 +51,9 @@ SSD 역시 가격 상승의 영향으로 가장 저렴한 브랜드의 512GB 모
 
 조립 자체는 단순합니다. 미니 PC의 하판을 열고 RAM과 NVMe SSD를 슬롯에 꽂으면 끝납니다. 다만 구입한 모델은 나사를 전부 풀어낸 뒤에도 하판이 단단히 맞물려 있어 분리가 쉽지 않았습니다. 결국 드라이버를 틈에 살짝 끼워 지렛대처럼 들어올린 뒤에야 열렸습니다.
 
-
 **조립 전**
 ![Mini PC Open](/static/images/blog/homeserver/minipc_withour_ram_ssd.png)
 하판을 분리하면 RAM 슬롯과 NVMe SSD 슬롯이 노출됩니다.
-
 
 **조립 후**
 ![Mini PC Assembled](/static/images/blog/homeserver/minipc_with_ram_ssd.png)
@@ -72,11 +70,10 @@ Release:	24.04
 Codename:	noble
 ```
 
-
 # 정리
 
 하드웨어 조립과 Ubuntu Server 설치까지 홈서버 구축의 첫 단계를 마무리했습니다.
 
 작성 시점 기준으로 구입 후 3개월이 지났습니다. 그동안 오른 부품 가격을 고려하면 처음부터 32GB 램과 1TB SSD를 함께 구입하는 편이 나았을 것입니다.
 
-현재 상태는 엄밀히 말하면 Ubuntu가 설치된 작은 컴퓨터 한 대에 불과합니다. 홈서버로서 의미를 가지려면 외부에서도 접근할 수 있어야 합니다. 다음 글에서는 공유기 설정을 통한 **포트포워딩**과 **DDNS** 구성을 다루어 외부 네트워크에서 서버에 접속할 수 있도록 만드는 과정을 정리하겠습니다.
+현재 상태는 엄밀히 말하면 Ubuntu가 설치된 작은 컴퓨터 한 대에 불과합니다. 홈서버로서 의미를 가지려면 외부에서도 접근할 수 있어야 합니다. 다음 [홈서버 구축기 2](/blog/homeserver/k8s-setting)에서는 Kubernetes 클러스터와 애플리케이션 배포를 다룹니다. 포트포워딩과 DDNS는 [구축기 3](/blog/homeserver/homeserver-setup-detail)에서 이어집니다.

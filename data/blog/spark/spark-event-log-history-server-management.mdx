@@ -1,14 +1,13 @@
 ---
 title: 'EMR Spark 이벤트 로그 누적으로 History Server가 느려지고 OOM이 발생했을 때'
+lastmod: '2026-11-02'
 date: '2026-10-16'
 tags: ['spark', 'aws', 'emr', 'memory', 'performance', 'ai generated']
 draft: false
 summary: 'EMR에서 이벤트 로그 누적과 함께 History Server 조회 지연·OOM을 겪은 사례를 바탕으로, 로그 보관 정책과 rolling, -Xmx1g 힙 조정을 함께 살펴본다.'
 ---
 
----
-
-이하 AI 작성 초안
+> 이 글은 이벤트 로그 누적과 History Server 지연·OOM이라는 증상에서 확인할 설정을 정리한다. 당시 릴리스·원본 OOM 로그·변경한 힙·전후 조회 시간은 확보되지 않아 원인 확정이나 개선 효과를 입증하는 회고는 아니다. Spark 3.5.7과 4g는 설명 기준과 예시다.
 
 # 이벤트 로그가 쌓이면서 실행 이력 조회도 문제가 됐다
 
@@ -16,12 +15,9 @@ EMR에서 Spark를 운영하면서 이벤트 로그가 계속 쌓였고, 실행 
 
 이 과정에서 확인한 것이 `spark.history.fs.cleaner.*`, `spark.eventLog.rolling.enabled`, 그리고 History Server 프로세스에 설정된 `-Xmx1g`였다. 처음에는 서로 다른 설정처럼 보였지만, 모두 같은 문제에 대응하기 위한 항목이었다. 오래된 로그를 얼마나 남길지, 새로 쌓이는 로그를 어떻게 나눌지, 그 로그를 읽는 서버에 얼마만큼의 힙을 줄지를 각각 정해야 했다.
 
-이 글은 그 경험을 **증상 확인 → 로그 보관 정책 정리 → rolling 검토 → History Server 힙 조정 → 적용 결과 확인** 순서로 정리한다. 아래 설정값은 설명용 예시이며 당시 적용값과 측정 결과는 별도로 기록한다.
+이 글은 그 경험을 **증상 확인 → 로그 보관 정책 정리 → rolling 검토 → History Server 힙 조정 → 적용 결과 확인** 순서로 정리한다. 아래 설정값은 설명용 예시이며 당시 적용값과 측정 결과가 없는 부분은 예시와 구분한다.
 
 이 글은 **EMR on EC2 클러스터에서 운영하는 Spark History Server**를 대상으로 한다. 설정 기본값과 동작은 Apache Spark 3.5.7을 기준으로 설명한다. EMR의 실제 기본값은 릴리스와 사용자 설정에 따라 달라질 수 있으므로 설치된 버전과 설정 파일을 먼저 확인한다. [EMR의 Spark 버전 목록](https://docs.aws.amazon.com/emr/latest/ReleaseGuide/Spark-release-history.html)
-
-> [!NOTE]
-> (당시 EMR·Spark 버전, 이벤트 로그 저장 경로, 누적 기간과 개수·용량, 조회 지연이 나타난 화면, 실제 OOM 로그를 추가해 주세요. Spark 3.5.7은 이 글의 설명 기준이며 실제 사용 버전으로 확정한 값은 아닙니다.)
 
 ---
 
@@ -137,9 +133,6 @@ Compaction은 오래된 파일의 이벤트를 분석해 일부를 버리고 다
 
 배치 작업의 과거 이력을 보관 기간 단위로 정리하려면 cleaner부터 검토한다. 하나의 애플리케이션이 장시간 살아 있고 로그가 계속 커진다면 rolling과 compaction이 필요한지 따로 판단한다.
 
-> [!NOTE]
-> (당시 배치 또는 스트리밍 여부, 실제 rolling 적용값과 전후 파일 크기·개수를 추가해 주세요. Compaction은 실제로 적용했는지, 기능만 검토했는지를 구분해 기록해 주세요.)
-
 ---
 
 # 로그 정리와 함께 History Server의 -Xmx1g도 조정하기
@@ -186,9 +179,6 @@ sudo systemctl status spark-history-server --no-pager
 `spark.driver.memory`나 `spark.executor.memory`는 별도 프로세스의 메모리 설정이므로 이 문제의 조정 대상이 아니다. History Server가 읽는 `SPARK_DAEMON_MEMORY`와 실제 프로세스의 적용값을 연결해서 확인해야 한다.
 
 힙 증설 후에도 실패한다면 로그에서 실제 OOM과 GC 상태를 확인한다. 원본 로그 보관량, 동시에 처리하는 이력의 양도 함께 살펴야 한다. 디스크 캐시를 쓰는 `spark.history.store.path`와 그 용량 제한은 원본 이벤트 로그의 보관 정책과 별개다. [History Server 저장소 설정 정의](https://github.com/apache/spark/blob/v3.5.7/core/src/main/scala/org/apache/spark/internal/config/History.scala)
-
-> [!NOTE]
-> (실제로 변경한 힙 크기, Primary 노드의 전체 메모리와 여유량, 서비스 재시작 방법을 추가해 주세요. 본문의 `4g`는 예시이며 실제 적용값으로 교체해야 합니다.)
 
 ---
 
@@ -252,9 +242,6 @@ hdfs dfs -du -s -h /spark-events
 ```
 
 한 번 정리되어 용량이 줄어든 결과와, 이후 로그 생성량을 감당하며 유지되는지는 다르다. 일별 증가량과 필요한 보관 기간을 함께 보고 설정값을 조정한다.
-
-> [!NOTE]
-> (실제 적용한 조치와 순서를 적고, 변경 전후 로그 개수·총용량·최대 파일 크기, 동일 이력의 조회 시간, OOM 재발 여부와 관찰 기간을 추가해 주세요. 여러 설정을 함께 바꿨다면 개별 설정의 효과를 따로 검증했는지도 기록해 주세요.)
 
 ---
 

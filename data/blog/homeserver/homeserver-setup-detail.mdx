@@ -1,5 +1,6 @@
 ---
-title: '홈서버 구축기 3 - 외부 접속 완전 정복: 포트포워딩부터 Cloudflare DDNS Gateway API까지'
+title: '홈서버 구축기 3 - 외부 접속 구성: 포트포워딩부터 Cloudflare DDNS Gateway API까지'
+lastmod: '2026-11-02'
 date: '2026-05-27'
 draft: false
 tags: ['homeserver', 'network', 'Cloudflare', 'Gateway API']
@@ -18,7 +19,7 @@ summary: 외부 접속을 위한 포트포워딩 기초부터 유동 IP 환경�
 
 가장 먼저 이해해야 할 것은 IP 주소의 개념입니다.
 
-인터넷에 가입하면 ISP(KT SKT LG 등)로부터 할당받는 IP는 **공인 IP(Public IP)** 하나뿐입니다. 그런데 집에서 사용하는 PC 스마트폰 TV 그리고 이번에 구축한 홈서버까지 수많은 기기가 인터넷을 써야 합니다. 공유기는 이 하나의 공인 IP를 **사설 IP(Private IP)** (예: `172.30.x.x` `192.168.x.x`)로 쪼개서 내부 기기들에 나눠 줍니다.
+인터넷에 가입하면 ISP(KT SKT LG 등)로부터 할당받는 IP는 **공인 IP(Public IP)** 하나뿐입니다. 그런데 집에서 사용하는 PC 스마트폰 TV 그리고 이번에 구축한 홈서버까지 수많은 기기가 인터넷을 써야 합니다. 공유기는 내부 기기에 **사설 IP(Private IP)**를 할당하고 NAT로 공인 주소를 공유하게 합니다. 공인 IP를 사설 IP로 쪼개는 동작은 아닙니다. 공인 IPv4 할당 방식과 CGNAT 여부는 회선에 따라 다릅니다.
 
 외부에서 우리 집으로 들어오려면 공인 IP를 따라 들어와야 하는데 공유기 문 앞까지만 도달할 수 있을 뿐 그 안의 어떤 기기가 '서버'인지 알 수 없습니다. 이를 해결하기 위해 필요한 것이 **포트포워딩**입니다.
 
@@ -30,7 +31,7 @@ summary: 외부 접속을 위한 포트포워딩 기초부터 유동 IP 환경�
 > **공유기 고정 IP 설정**
 > 메뉴 이름은 공유기마다 다른데 '장치 설정' 'DHCP 할당 설정' 'IP/MAC 바인딩' '주소 예약' 같은 이름으로 들어가 있습니다. 서버의 MAC 주소는 리눅스에서 `ip link show <인터페이스명>`으로 확인할 수 있습니다.
 
-이 단계는 [홈서버 구축기 2](#)의 첫 절에서도 짚었습니다. 쿠버네티스 노드 IP 안정성과 포트포워딩 양쪽 모두에 영향을 주는 작업입니다.
+이 단계는 [홈서버 구축기 2](/blog/homeserver/k8s-setting)의 첫 절에서도 짚었습니다. 쿠버네티스 노드 IP 안정성과 포트포워딩 양쪽 모두에 영향을 주는 작업입니다.
 
 ### 1.3 포트포워딩
 
@@ -84,7 +85,7 @@ echo "OpenDNS      : $(dig +short myip.opendns.com @resolver1.opendns.com)"
 그 다음 **공유기 관리 페이지의 WAN IP**를 봅니다.
 
 - 공유기 WAN IP가 위 결과와 **같다** → CGNAT 아님 (포트포워딩 가능)
-- 공유기 WAN IP가 `100.64.0.0/10` 대역(`100.64.x.x` ~ `100.127.x.x`)이거나 `10.x.x.x` → CGNAT (ISP에 공인 IP 요청 필요)
+- 공유기 WAN IP가 `100.64.0.0/10` 대역(`100.64.x.x` ~ `100.127.x.x`)이거나 `10.x.x.x` → 상위 NAT 의심. 다른 공유기 아래에 연결된 이중 NAT인지 CGNAT인지 확인 후 ISP에 문의
 
 ---
 
@@ -175,7 +176,7 @@ Kubernetes의 `cert-manager`가 이 과정을 대신 수행해 줍니다. 두 �
 > [!TIP]
 > 최신 cert-manager에서는 갱신 시마다 개인키(Private Key)를 교체하는 `rotationPolicy: Always` 설정을 권장합니다.
 
-실제 매니페스트는 [홈서버 구축기 2](#) 의 4절에서 다뤘으니 여기서는 개념만 짚고 넘어갑니다.
+실제 매니페스트는 [홈서버 구축기 2](/blog/homeserver/k8s-setting) 의 4절에서 다뤘으니 여기서는 개념만 짚고 넘어갑니다.
 
 ---
 
@@ -200,7 +201,7 @@ Kubernetes의 `cert-manager`가 이 과정을 대신 수행해 줍니다. 두 �
 
 이렇게 하면 내부의 수많은 애플리케이션마다 일일이 인증서를 관리할 필요 없이 Gateway 한 곳에서만 관리하면 됩니다.
 
-Gateway와 HTTPRoute 매니페스트도 [홈서버 구축기 2](#) 의 5절에 정리해 두었습니다.
+Gateway와 HTTPRoute 매니페스트도 [홈서버 구축기 2](/blog/homeserver/k8s-setting) 의 5절에 정리해 두었습니다.
 
 ---
 
@@ -246,7 +247,7 @@ kubectl rollout restart deploy argocd-server -n argocd
 
 ```bash
 # 노드 안에서는 정상
-curl -k -H "Host: argocd.movingzero.org" https://127.0.0.1:31040/
+curl --resolve argocd.movingzero.org:31040:127.0.0.1 https://argocd.movingzero.org:31040/
 # HTTP/2 200 ...
 
 # 외부에서는 521
@@ -269,15 +270,15 @@ curl -I https://argocd.movingzero.org/
 
 ### 6.4 진단 명령
 
-외부망(모바일 데이터 등 우리 집 와이파이가 아닌 회선)에서 한 줄이면 1과 2를 판별할 수 있습니다.
+외부망(모바일 데이터 등 우리 집 와이파이가 아닌 회선)에서 TCP 연결 결과를 먼저 확인합니다. 이 명령 하나로 공유기와 ISP 중 원인을 확정할 수는 없습니다.
 
 ```bash
 nc -zv <공인IP> 443
 ```
 
-- `succeeded` → 포워딩과 ISP 모두 OK. 다른 곳이 문제.
-- `Connection refused` → 공유기 포워딩 미적용 (외부 포트가 443이 아닐 가능성 높음).
-- `timed out` → ISP가 443을 차단했을 가능성이 높음.
+- `succeeded` → 해당 시점·경로의 TCP 연결 성공. TLS·SNI·HTTP 라우팅은 별도 확인.
+- `Connection refused` → 연결 거절 응답 수신. 리스너 부재·방화벽 거절·포워딩 설정을 확인.
+- `timed out` → 응답 없음. 방화벽 드롭·잘못된 주소·NAT·경로·ISP 제한 등 후보를 나눠 확인.
 
 ### 6.5 ISP 443 차단을 만났을 때: Origin Rules로 우회
 
@@ -323,16 +324,18 @@ curl -v --resolve argocd.movingzero.org:443:<공인IP> https://argocd.movingzero
 
 ## 8. 완성된 외부 접속 아키텍처
 
-이제 홈서버는 다음과 같은 흐름으로 동작합니다.
+Cloudflare에서 레코드를 proxied로 설정한 경우의 흐름은 다음과 같습니다.
 
-1. 사용자가 `argocd.movingzero.org`에 접속.
-2. **Cloudflare DNS**가 우리 집의 현재 공인 IP로 응답.
-3. **공유기**가 포트포워딩을 통해 홈서버 `192.168.0.100`으로 트래픽 전달.
-4. **Gateway**가 443 포트에서 요청을 받고 **Let's Encrypt 와일드카드 인증서**로 TLS 종료.
-5. **HTTPRoute** 규칙에 따라 내부망의 **ArgoCD**로 트래픽 전달.
-6. **ArgoCD**는 평문 HTTP로 화면을 응답.
+1. 사용자가 `argocd.movingzero.org`를 조회하면 DNS가 **Cloudflare의 프록시 IP**를 응답합니다.
+2. 사용자와 Cloudflare 사이에 HTTPS 연결이 만들어집니다.
+3. Cloudflare가 origin인 홈서버 공인 IP의 포트로 연결합니다. 이 글에서는 origin에도 HTTPS를 사용하는 구성을 전제로 합니다.
+4. 공유기가 외부 포트를 홈서버의 NodePort로 전달합니다.
+5. Gateway에서 origin TLS를 종료하고 HTTPRoute가 ArgoCD로 전달합니다.
+6. ArgoCD는 내부 HTTP로 응답합니다.
 
-이 구조는 보안성(SSL) 편의성(DDNS Wildcard) 확장성(Gateway API)을 모두 갖춘 외부 접속 구성입니다. 새 도메인 하나를 더 띄우고 싶을 때 추가로 작업할 것은 ddclient의 도메인 목록 한 줄과 HTTPRoute 한 개뿐입니다.
+DNS-only 레코드라면 DNS가 origin 공인 IP를 응답하고, 사용자가 공유기·Gateway로 직접 연결합니다. 두 경로를 같은 구조로 설명하면 Cloudflare의 521과 TLS 구간을 해석하기 어렵습니다. [Cloudflare Proxy status](https://developers.cloudflare.com/dns/proxy-status/)
+
+새 서비스에는 DNS 갱신·포트 노출·인증서·HTTPRoute·백엔드 Service 조건이 함께 맞아야 합니다. 현재 적용된 proxy 상태·origin TLS 모드·Origin Rule은 실제 설정을 조회해 확인해야 하며, 이 글의 설명만으로 현재 운영값을 확정하지는 않습니다.
 
 ---
 

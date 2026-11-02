@@ -1,5 +1,6 @@
 ---
 title: '홈서버 구축기 2 - Kubernetes 클러스터 구축과 애플리케이션 배포'
+lastmod: '2026-11-02'
 date: '2026-05-26'
 tags: ['homeserver', 'Kubernetes', 'Calico', 'Gateway API', 'cert-manager']
 draft: false
@@ -18,6 +19,19 @@ summary: 단일 노드 Ubuntu 서버 위에 kubeadm으로 Kubernetes를 올리�
 6. **애플리케이션 배포** - Kustomize 기반 프론트엔드 백엔드 DB 구성
 
 ---
+
+## 이 기록의 전제
+
+아래 구성은 기존 홈서버의 설치·배포 기록이다. kubeadm 외에 Helm, Rancher Local Path Provisioner, ArgoCD와 예시에서 참조하는 네임스페이스·Secret이 준비되어 있어야 한다. 이 글만으로 빈 서버의 모든 의존성이 설치되는 것은 아니다. 특히 `local-path` StorageClass는 kubeadm이 자동으로 만들지 않는다.
+
+```bash
+helm version
+kubectl get storageclass local-path
+kubectl get namespaces
+kubectl -n nginx-gateway get services
+```
+
+Gateway용 Service가 NodePort로 노출되었는지, 다음 글의 31040과 실제 nodePort가 일치하는지 확인한다. cert-manager·NGINX Gateway Fabric의 버전과 NodePort 생성 설정은 당시 설치값을 확인해야 한다. `latest` 설치 주소는 재실행 시 다른 버전을 가리킬 수 있다.
 
 ## 1. 사전 준비: 서버 IP 고정
 
@@ -224,7 +238,7 @@ spec:
       ports: [53]
 ```
 
-세 줄짜리 정책입니다. 내부망(파드 대역과 서비스 대역)을 열고 외부 인터넷도 열어 두고 DNS는 UDP 53을 따로 허용합니다. `selector: all()`로 클러스터의 모든 파드에 일괄 적용됩니다.
+앞의 두 허용 규칙을 합치면 사실상 모든 목적지에 대한 egress를 허용하므로 마지막 DNS 규칙은 이 구성에서 추가 제한을 만들지 않습니다. 이는 최소 권한 egress 정책이 아니라 통신을 열어 두는 예시입니다. 인터넷만 허용하고 내부망을 차단하는 정책으로 사용해서는 안 됩니다. `selector: all()`로 클러스터의 모든 파드에 일괄 적용됩니다.
 
 ### 3.5 BPF 데이터플레인 전환 시도와 롤백
 
@@ -242,7 +256,7 @@ calicoNetwork:
 
 부트스트랩 과정에서 몇 가지 함정을 통과한 다음 클러스터는 일단 올라왔고 파드 간 내부 통신과 ClusterIP 서비스 통신도 정상이었습니다. 그런데 **파드에서 외부 인터넷으로 나가는 트래픽이 100% 손실**되는 증상이 나타났습니다. 노드 자체에서 `ping 8.8.8.8`은 잘 가는데 파드 안에서는 한 패킷도 못 빠져나갔습니다.
 
-원인을 추적해 보니 다음과 같았습니다. BPF 모드의 natOutgoing은 BPF 프로그램이 egress 패킷에 mark `0x03800000`을 박아 주면 nft의 MASQUERADE 룰이 그 mark를 보고 발동하는 구조입니다. 그런데 이 환경에 깔린 Calico v3.31.3과 tigera-operator v1.40.3 조합에서 operator가 `nftablesMode=Enabled`를 강제로 reconcile해 버리고 BPF 프로그램이 그 상태에서 mark를 박지 않았습니다. `nat-cali-nat-outgoing` 체인의 카운터가 계속 0이라는 게 그 증거였습니다.
+당시 관찰한 설정과 카운터는 다음과 같았습니다. 아래 현상은 원인 후보를 좁히는 단서이며, 패킷 추적이나 대조 실험 없이 특정 operator 결함으로 확정할 수는 없습니다. BPF 모드의 natOutgoing은 BPF 프로그램이 egress 패킷에 mark `0x03800000`을 박아 주면 nft의 MASQUERADE 룰이 그 mark를 보고 발동하는 구조입니다. 당시 Calico v3.31.3과 tigera-operator v1.40.3 환경에서 `nftablesMode=Enabled`가 유지되는 현상을 관찰했고, BPF 경로에서 기대한 mark가 설정되지 않는 것이 원인일 수 있다고 추정했습니다. `nat-cali-nat-outgoing` 체인의 카운터가 계속 0이라는 점을 관찰했습니다. 0 카운터만으로는 mark 누락과 다른 경로로의 트래픽 이탈을 구분할 수 없습니다.
 
 ```
 chain nat-cali-nat-outgoing {
@@ -269,7 +283,7 @@ kubectl delete cm -n tigera-operator kubernetes-service-endpoints
 
 롤백 직후 파드에서 `ping 8.8.8.8`이 3/3 정상으로 돌아왔고 TCP egress와 클러스터 DNS도 모두 정상이었습니다. iptables 백엔드의 `cali-nat-outgoing` 체인은 ipset 기반으로 MASQUERADE를 걸어 주는 구조라 BPF 프로그램에 의존하지 않고 노드를 재부팅해도 매번 안정적으로 재생성됩니다.
 
-BPF가 매력적이지 않다는 뜻은 아닙니다. 다만 v3.31 시점의 operator 자동 감지 로직과 nftables 모드 강제 사이의 간섭 때문에 단일 노드 홈서버 환경에서 굳이 BPF를 끌어들이는 건 위험 대비 보상이 낮다는 게 결론입니다. 노드 수가 늘고 kube-proxy 부담이 실제로 보이는 시점이 오면 다시 검토할 계획입니다.
+BPF가 매력적이지 않다는 뜻은 아닙니다. 다만 당시 환경에서는 BPF 구성을 유지하는 대신 통신이 복구된 Iptables 구성을 선택했습니다. 특정 버전 전체의 결함이나 모든 단일 노드 환경에 대한 결론으로 일반화하지는 않습니다. 노드 수가 늘고 kube-proxy 부담이 실제로 보이는 시점이 오면 다시 검토할 계획입니다.
 
 ---
 
@@ -619,7 +633,7 @@ spec:
 
 - **`PROD_DB_URL: jdbc:postgresql://db:5432/daytous`** - DB Service의 이름(`db`)을 호스트로 씁니다. 같은 네임스페이스 안에서는 서비스 이름만으로 DNS 해석이 됩니다.
 - **`SERVER_FORWARD_HEADERS_STRATEGY: native`** - Gateway 뒤에서 동작하므로 `X-Forwarded-*` 헤더를 신뢰하라는 설정입니다. 이게 빠지면 Spring이 리다이렉트 URL을 HTTP로 만들어 무한 리다이렉트 루프가 생깁니다.
-- **`SAMESITE: none`** + **`SECURE: true`** - 프론트엔드(`daytous.movingzero.org`)와 API(`day-to-us-api.movingzero.org`)가 다른 서브도메인이라 크로스 사이트 쿠키 설정이 필요합니다.
+- **`SAMESITE: none`** + **`SECURE: true`** - 예시 설정은 SameSite=None을 사용하지만, 같은 HTTPS와 등록 도메인을 공유하는 두 서브도메인은 통상 same-site입니다. 다른 origin이라는 이유만으로 None이 필수인 것은 아닙니다. 실제 OAuth 리다이렉트·iframe 등 cross-site 흐름을 확인해 Lax/Strict 사용 가능성을 판단해야 합니다. CORS와 쿠키의 Domain·Secure 조건은 따로 확인합니다. [쿠키 명세 작업 초안](https://httpwg.org/http-extensions/draft-ietf-httpbis-rfc6265bis.html#section-5.2)
 - **`imagePullSecrets: regcred`** - Docker Hub 프라이빗 레지스트리에서 이미지를 가져오기 위한 인증 정보입니다.
 
 백엔드의 Service와 HTTPRoute는 다음과 같습니다.
@@ -777,7 +791,7 @@ spec:
 모든 설정이 들어간 클러스터의 트래픽 흐름은 다음과 같습니다.
 
 1. 사용자가 `daytous.movingzero.org`에 접속합니다.
-2. **Cloudflare DNS**가 홈서버의 현재 공인 IP를 응답합니다.
+2. **DNS-only라면 origin 공인 IP**, proxied라면 Cloudflare IP를 응답합니다. 후자의 경우 Cloudflare가 origin으로 연결하는 구간이 추가됩니다.
 3. 공유기의 **포트포워딩**이 443 트래픽을 서버 `192.168.0.100`으로 보냅니다.
 4. **Gateway** (`edge-gw`)가 와일드카드 인증서로 TLS를 종료합니다.
 5. **HTTPRoute**가 호스트명을 보고 적절한 서비스로 라우팅합니다.

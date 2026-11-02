@@ -1,9 +1,10 @@
 ---
 title: '시그모이드 함수 (Sigmoid Function)'
+lastmod: '2026-11-02'
 date: '2026-04-13'
 tags: ['ML', 'math', 'numpy']
 draft: false
-summary: Sigmoid
+summary: '시그모이드의 NumPy 구현과 도함수를 살펴보고 활성화 함수의 기울기 소실 조건을 정리한다.'
 ---
 
 [TensorTonic의 Sigmoid 문제](https://www.tensortonic.com/problems/sigmoid-numpy)를 풀면서 시그모이드 함수에 대해 정리해 보았다.
@@ -35,8 +36,17 @@ def sigmoid(x):
     """
     Vectorized sigmoid function.
     """
-    x = np.asarray(x)
-    return 1 / (1 + np.exp(-x))
+    x = np.asarray(x, dtype=float)
+    exp_neg_abs = np.exp(-np.abs(x))
+    return np.where(x >= 0, 1 / (1 + exp_neg_abs), exp_neg_abs / (1 + exp_neg_abs))
+```
+
+`exp(-abs(x))`를 공통 중간값으로 사용해 큰 음수·양수에서도 exp 오버플로우를 피한다. 두 분기 인자가 모두 계산되는 np.where의 특성 때문에, 각 인자에 exp(x)·exp(-x)를 그대로 넣는 방식과는 다르다.
+
+```python
+with np.errstate(over="raise", invalid="raise"):
+    print(sigmoid(np.array([-1000., 0., 1000.])).tolist())
+# [0.0, 0.5, 1.0]
 ```
 
 ## `np.asarray` vs `np.array`
@@ -92,8 +102,7 @@ $$
 \sigma'(x) = \sigma(x)(1 - \sigma(x))
 $$
 
-이 도함수의 최댓값은 $x = 0$일 때 $0.25$다. 즉 역전파 과정에서 한 층을 지날 때마다 기울기가 최대 $\frac{1}{4}$로 줄어든다.
-층이 깊어질수록 기울기가 기하급수적으로 작아져서 앞쪽 층의 가중치가 거의 업데이트되지 않는 **기울기 소실** 문제가 발생한다.
+이 도함수의 최댓값은 $x = 0$일 때 $0.25$다. 시그모이드의 도함수만 보면 각 원소의 미분값이 최대 $\frac{1}{4}$다. 실제 층의 역전파에는 가중치 행렬도 곱해지므로 층 전체 기울기가 항상 1/4 이하로 준다는 뜻은 아니다. 포화 영역에서 작은 도함수가 반복해서 곱해지면 앞쪽 층의 학습이 느려질 수 있다.
 
 ## 출력이 Zero-centered가 아님
 

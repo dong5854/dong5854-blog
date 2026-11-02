@@ -1,5 +1,6 @@
 ---
 title: '파이썬 namedtuple'
+lastmod: '2026-11-02'
 date: '2024-02-19'
 tags: ['python']
 draft: false
@@ -72,9 +73,9 @@ pororo
 Test(a=1, _1=2, _2=3, _3=4, _4=5)
 ```
 
-## default
+## defaults
 
-또한 default 에 iterable 한 값을 넣어주면 필드에 기본값을 줄 수있습니다.
+또한 defaults에 iterable 한 값을 넣어주면 필드에 기본값을 줄 수있습니다.
 
 ```python
 >>> Test = collections.namedtuple("Test", ["a", "b", "c"], defaults=[1, 2, 3])
@@ -111,7 +112,7 @@ print(f'Attribute a: {f.a}')
 
 ```bash
 # 출력
-f.dict: {'a': 1}
+f.__dict__: {'a': 1}
 Attribute a: 1
 ```
 
@@ -132,7 +133,7 @@ except Exception as e:
 ```
 
 ```bash
-Foo object has no attribute dict
+'Foo' object has no attribute '__dict__'
 'Foo' object has no attribute 'c'
 ```
 
@@ -141,7 +142,20 @@ Foo object has no attribute dict
 # 타입 힌트
 
 Named tuple 은 분명히 유용해 보이지만, 타입 힌트를 줄 수 없다는 아쉬움이 있습니다.
-이 문제를 해결하기 위해 파이썬 3.6 버전에 `typing.NamedTuple` 가 추가되었습니다.
+이 문제를 해결하기 위해 Python 3.5에 도입된 `typing.NamedTuple`을 사용할 수 있습니다. Python 3.6에서는 클래스 선언 문법 지원 등이 추가되었습니다. [typing.NamedTuple 문서](https://docs.python.org/3/library/typing.html#typing.NamedTuple)
+
+```python
+from typing import NamedTuple
+
+class Penguin(NamedTuple):
+    name: str
+    age: int = 0
+
+print(Penguin("pororo"))
+# Penguin(name='pororo', age=0)
+```
+
+`defaults`는 오른쪽 필드부터 적용됩니다. 예를 들어 필드가 name·age일 때 defaults=[0]이면 age에만 기본값이 생깁니다. 이름으로 필드에 접근하는 튜플이 필요하면 NamedTuple, 일반적인 데이터 객체와 변경 가능한 필드가 필요하면 dataclass를 검토할 수 있습니다.
 
 # 마치면서
 

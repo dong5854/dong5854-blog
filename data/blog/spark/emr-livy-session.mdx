@@ -1,23 +1,19 @@
 ---
 title: 'EMR Livy 세션 이해하기 — 생성부터 리소스 관리와 타임아웃까지'
+lastmod: '2026-11-02'
 date: '2026-09-21'
 tags: ['spark', 'aws', 'emr', 'yarn', 'pyspark', 'ai generated']
 draft: false
 summary: 'Livy 세션과 SparkSession의 차이, 비동기 REST API 실행 흐름, EMR에서의 세션 재사용·리소스 관리·타임아웃과 장애 진단을 정리한다.'
 ---
 
----
-
-이하 AI 작성 초안
+> 이 글은 명시한 공식 문서 버전을 기준으로 한 운영 가이드다. 실제 EMR의 버전·동시 세션 수·시작 시간·유휴 메모리를 측정한 결과는 포함하지 않는다.
 
 # 들어가며
 
 EMR 노트북에서 첫 셀을 실행하면 준비 시간이 길고, 다음 셀부터는 비교적 빠르게 실행되는 경험을 하게 된다. Livy를 사용하는 환경에서는 첫 실행 시 원격 Spark 실행 환경을 준비하고 이후 코드를 같은 환경에서 처리하기 때문이다.
 
 Apache Livy는 HTTP로 Spark 코드와 애플리케이션을 제출하고 결과를 조회하는 서버다. 이 글은 **EMR on EC2에서 Spark를 YARN으로 실행하는 대화형 Livy 세션**을 기준으로 설명한다. EMR Serverless의 Livy 엔드포인트는 인증과 설정 방식이 달라 마지막에 따로 다룬다. [AWS Livy 소개](https://docs.aws.amazon.com/emr/latest/ReleaseGuide/emr-livy.html)
-
-> [!NOTE]
-> (사용한 EMR 릴리스, Livy·Spark 버전, EMR Studio 또는 외부 노트북 연결 방식과 세션 문제를 겪었던 배경을 추가해 주세요.)
 
 ---
 
@@ -239,9 +235,6 @@ Spark 동적 할당은 애플리케이션의 Executor 수를 조정하고, EMR�
 
 `minExecutors`, `maxExecutors`와 유휴 회수 설정은 Executor에 적용된다. 캐시·셔플 조건 때문에 회수가 지연될 수 있으며, 세션 개수와 Driver 비용을 줄이려면 별도의 Livy 종료 정책이 필요하다.
 
-> [!NOTE]
-> (실제 동시 세션 수, 세션 시작 시간, 유휴 시 Driver·Executor 사용량과 세션 정리 전후 변화를 추가해 주세요.)
-
 ---
 
 # EMR에서 배포 모드와 설정 적용 시점
@@ -355,9 +348,6 @@ Statement 취소는 `/sessions/{sessionId}/statements/{statementId}/cancel`로 �
 
 Livy 서버 재시작 뒤 세션 복구도 자동 보장으로 취급하지 않는다. Apache Livy에는 recovery mode와 상태 저장소 설정이 있지만, 이는 실행 중인 세션에 다시 연결하기 위한 기능이다. Driver가 종료된 뒤 Python 변수와 메모리 상태를 복원하는 체크포인트 기능은 아니다. [Livy recovery 설정](https://github.com/apache/incubator-livy/blob/v0.8.0-incubating/conf/livy.conf.template)
 
-> [!NOTE]
-> (실제 session ID와 app ID의 연결 과정, 오류 메시지, Driver 로그에서 확인한 원인과 해결 방법을 추가해 주세요.)
-
 ---
 
 # EMR Serverless에서는 무엇이 다른가
@@ -386,4 +376,3 @@ Livy 세션을 운영할 때는 코드 실행 결과와 실행 환경의 수명�
 - [Spark on EMR의 ApplicationMaster — Driver 관계, 메모리, 대기와 재시도](/blog/spark/emr-yarn-application-master)
 - [EMR YARN Node Label Expression — CORE·TASK와 관리 모드](/blog/spark/emr-yarn-node-label-expression)
 - [YARN Capacity Scheduler 실전 가이드](/blog/spark/yarn-fair-vs-capacity-scheduler)
-- [스파크 아키텍쳐](/blog/spark/spark-architecture)

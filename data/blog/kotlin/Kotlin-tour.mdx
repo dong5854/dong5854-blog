@@ -1,8 +1,9 @@
 ---
 title: 'Kotlin tour'
+lastmod: '2026-11-02'
 date: '2024-02-25'
 tags: ['kotlin']
-draft: false
+draft: true
 summary: kotlin tour document 살펴보기
 ---
 
@@ -39,7 +40,7 @@ Hello, world!
 
 코틀린에서 변수는 크게 `val` 과 `var` 이 있습니다.
 
-- `val` 은 read-only 인 불변(immutable) 변수를 선언할 때 사용합니다.
+- `val`은 재할당할 수 없는 참조를 선언합니다. 참조한 객체 자체가 불변이라는 뜻은 아닙니다.
 - `var` 은 가변(mutable) 변수를 선언할 때 사용합니다.
 
 변수에 값 할당은 `=` 을 통해 이루어집니다.
@@ -163,7 +164,7 @@ println(e) // hello
 
 List 들은 아이템을 추가된 순서대로 저장합니다. 또한 중복된 아이템을 허용합니다.
 
-수정 불가능(immutable)한 read-only [`List`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/-list/) 를 생성하기 위해서는 [`listOf()`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/list-of.html) 함수를 사용합니다.
+읽기 전용(read-only) [`List`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/-list/) 를 생성하기 위해서는 [`listOf()`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/list-of.html) 함수를 사용합니다.
 
 수정 가능한(mutable) [`MutableList`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/-mutable-list.html)를 생성하기 위해서는 [`mutableListOf()`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/mutable-list-of.html) 함수를 사용합니다.
 
@@ -248,7 +249,7 @@ mutable 한 리스트에서 값을 추가하거나 빼려면 각각 [`.add()`](h
 
 List 들은 순서가 존재하고 중복된 아이템들을 저장하는 반면, Set 은 **순서가 보장되지 않고 중복을 허용하지 않습니다.**
 
-수정 불가능(immutable)한 read-only [`Set`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/-set/) 를 생성하기 위해서는 [`setOf()`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/set-of.html) 함수를 사용합니다.
+읽기 전용(read-only) [`Set`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/-set/) 를 생성하기 위해서는 [`setOf()`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/set-of.html) 함수를 사용합니다.
 
 수정 가능한(mutable) [`MutableSet`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/-mutable-set/)를 생성하기 위해서는 [`mutableSetOf()`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/mutable-set-of.html) 함수를 사용합니다.
 
@@ -328,7 +329,7 @@ Map 들은 아이템을 key-avlue 쌍으로 저장합니다. key 를 참조하�
 Map 은 list 처럼 numbered index 를 활용하지 않고 value 값을 찾을 때 유용합니다.
 value 는 중복될 수 있지만, key 는 중복이 있으면 안됩니다.
 
-수정 불가능(immutable)한 read-only [`Map`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/-map/) 를 생성하기 위해서는 [`mapOf()`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/map-of.html) 함수를 사용합니다.
+읽기 전용(read-only) [`Map`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/-map/) 를 생성하기 위해서는 [`mapOf()`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/map-of.html) 함수를 사용합니다.
 
 수정 가능한(mutable) [`MutableMap`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/-mutable-map/)를 생성하기 위해서는 [`mutableMapOf()`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/mutable-map-of.html) 함수를 사용합니다.
 
@@ -351,7 +352,7 @@ println(juiceMenu)
 > 원하지 않는 수저을 방지하기 위해, `Map` 으로 캐스팅하여 mutable mpa 의 read-only view 를 얻을 수 있습니다.
 >
 > ```kotlin
-> val juiceMenu: MutableMap<String, Int> = mutableMapOf("apple" > to 100, "kiwi" to 190, "orange" to 100)
+> val juiceMenu: MutableMap<String, Int> = mutableMapOf("apple" to 100, "kiwi" to 190, "orange" to 100)
 > val juiceMenuLocked: Map<String, Int> = juiceMenu
 > ```
 
@@ -404,7 +405,7 @@ println(readOnlyJuiceMenu.containsKey("kiwi"))
 // true
 ```
 
-map 의 keys 혹은 values collection 을 얻기 위해서 [`keys`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/-map/keys.html) 혹은 [][][`value`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/-map/values.html) 속성을 사용할 수 있습니다.
+map 의 keys 혹은 values collection 을 얻기 위해서 [`keys`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/-map/keys.html) 혹은 [`values`](https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.collections/-map/values.html) 속성을 사용할 수 있습니다.
 
 ```kotlin
 val readOnlyJuiceMenu = mapOf("apple" to 100, "kiwi" to 190, "orange" to 100)
@@ -426,4 +427,6 @@ println(200 in readOnlyJuiceMenu.values)
 
 collection 들의 더 자세한 내용은 [`Collections`](https://kotlinlang.org/docs/collections-overview.html) 에서 확인할 수 있습니다.
 
-# 제어문 (Control Flow)
+# 정리
+
+이번 노트는 변수와 컬렉션까지 다룬다. 읽기 전용 인터페이스는 해당 참조로 수정을 제공하지 않는다는 뜻이며, 다른 가변 참조를 통한 변경까지 막지는 않는다.

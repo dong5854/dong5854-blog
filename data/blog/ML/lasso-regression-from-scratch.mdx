@@ -1,9 +1,10 @@
 ---
 title: 'NumPy로 라소 회귀 밑바닥부터 구현하기'
+lastmod: '2026-11-02'
 date: '2026-04-23'
 tags: ['ML', 'math', 'numpy']
 draft: false
-summary: Lasso Regression from Scratch
+summary: 'L1 서브그래디언트로 라소를 구현하고 최적해의 희소성과 고정 학습률 구현의 차이를 살펴본다.'
 ---
 
 [TensorTonic의 Lasso Regression 문제](https://www.tensortonic.com/study-plans/cracking-ml/ml-lasso-regression)를 NumPy만으로 경사하강법으로 풀면서 정리했다. 선형 회귀에 L1 페널티를 더한 구조인데 $|w|$가 $w = 0$에서 미분 불가능하다는 성질 때문에 **서브그래디언트**라는 개념을 빌려야 한다. 이 한 지점이 라소를 L2 기반 정규화와 기능적으로 갈라놓기 때문에 그 부분을 중심으로 다룬다.
@@ -202,7 +203,7 @@ L2 기반 구현과 비교하면 `dw`에 더해지는 항이 $2 \alpha \mathbf{w
 
 - **L1 서브그래디언트가 붙은 경사하강법**: 표준 경사하강법의 weight 기울기에 L1 norm의 서브그래디언트가 더해진다. L1의 서브그래디언트는 weight의 부호 그 자체라서 양수면 $+1$이고 음수면 $-1$이며 $w = 0$에서는 구간 $[-1, 1]$ 중 $0$을 관습적으로 택한다. `np.sign`이 이 세 경우를 한 번에 처리한다.
 - **bias는 규제 대상이 아님**: bias 기울기는 정규화 항 없이 MSE 도함수만 받는다. bias까지 규제하면 예측이 데이터 평균에서 벗어나 모델 정확도가 떨어지므로 표준 관례에서 제외한다.
-- **Sparsity 효과**: L1 서브그래디언트는 weight를 0 쪽으로 민다. $\alpha$가 충분히 크면 일부 weight가 **정확히 0**이 되면서 해당 feature를 모델에서 빼는 feature selection이 자동으로 수행된다. weight를 0 쪽으로 줄이기만 할 뿐 제거하지는 않는 L2 정규화와 라소를 가르는 결정적 차이다.
+- **Sparsity 효과**: L1 서브그래디언트는 weight를 0 쪽으로 민다. 라소 목적함수의 최적해에서는 일부 weight가 **정확히 0**일 수 있다. 다만 위의 고정 학습률 서브그래디언트 구현은 0 주변에서 진동할 수 있어 유한 번 갱신 뒤 희소한 결과를 보장하지 않는다. weight를 0 쪽으로 줄이기만 할 뿐 제거하지는 않는 L2 정규화와 라소를 가르는 결정적 차이다.
 
 # Sparsity의 기하학적 직관
 
@@ -233,6 +234,22 @@ w_j \leftarrow \text{sign}(w_j) \cdot \max(|w_j| - \lambda,\ 0)
 $$
 
 scikit-learn의 `Lasso`도 내부적으로 coordinate descent를 쓴다. 이번 문제에서 서브그래디언트 방식을 쓰는 건 개념을 보여주기 위함이고 실무에서 진짜 희소 해가 필요하면 proximal 계열이 답이라는 점만 기억해 두면 된다.
+
+# 작은 입력으로 실행 확인
+
+NumPy 2.3.5에서 아래 입력과 출력을 확인했다. 작은 예제의 동작 확인이며 검증 데이터의 일반화 성능을 측정한 결과는 아니다.
+
+```python
+X = np.array([[-2.], [-1.], [0.], [1.], [2.]])
+y = 3 * X[:, 0] + 5
+w, b = lasso_regression(X, y, lr=0.01, epochs=2000, alpha=2.0)
+print(w, b)
+assert np.allclose(w, [2.5]) and np.isclose(b, 5.)
+```
+
+```text
+[2.5] 5.0
+```
 
 # 마무리
 

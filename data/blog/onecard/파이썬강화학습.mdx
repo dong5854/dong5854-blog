@@ -1,5 +1,6 @@
 ---
 title: '원카드 인공지능 강화학습'
+lastmod: '2026-11-02'
 date: '2025-11-06'
 tags: ['python']
 draft: true
@@ -52,74 +53,9 @@ LLM을 실제로 사용하면서 느낀 점은 두 가지였습니다.생활적�
 
 결국 AI 실험과 개발을 더 유연하게 진행하기 위해 클라이언트에 포함되어 있던 싱글플레이어 게임 로직을 백엔드 API로 완전히 분리할 예정입니다.
 
-아래의 내용은 이 결론에 닿기까지 겪은 시행착오에 대한 내용입니다.
+아래는 브리지 실험 단계의 기록입니다. 이후 구현과 다른 부분은 마지막의 코드 재확인 절에 구분해 적었습니다.
 
-
-# 이하 드레프트
-
-현재 원카드 게임의 로직은 전부 NEXT JS 프론트엔드 프로젝트에 개발되어 있음.
-
-1. 강화학습을 위해서 게임 엔진에 해당하는 프로젝트를 tsup 을 사용해 번들링
-
-```JS
-// onecard-client
-{
-	"extends": "./tsconfig.json",
-	"compilerOptions": {
-		"incremental": false,
-		"noEmit": false,
-		"emitDeclarationOnly": true,
-		"declaration": true,
-		"declarationMap": false,
-		"outDir": "dist/engine"
-	},
-	"include": ["lib/engine/**/*", "lib/state/**/*", "lib/reducers/**/*", "types/**/*", "lib/utils/**/*"]
-}
-```
-
-```JS
-// onecard-client
-npx tsup ../onecard-client/lib/engine/gameEngine.ts \
-  --format cjs --dts --out-dir dist/engine \
-  --tsconfig tsconfig.engine.json
-```
-
-2. 브릿지 서버 의존성 설치 및 실행
-
-```sh
-# engine-bridge
-npm install express
-```
-
-```sh
-# engine-bridge
-node src/engine-server.js
-```
-
-3. 서버 동작 확인
-```sh
-curl http://localhost:4000/state
-```
-
-3. 파이썬 개발 환경 준비
-
-[uv 설치](https://docs.astral.sh/uv/getting-started/installation/)
-```sh
-pipx install uv
-```
-
-```sh
-uv add gymnasium
-uv add numpy
-uv add requests
-uv add 'stable-baselines3[extra]'
-```
-
-
-4. Gymnasium 환경 구성
-
-
-# ONE CARD AI & 게임 엔진 리팩터링 여정
+# 엔진 분리와 브리지 실험
 
 처음엔 AI 쪽 지식이 전무한 채로 “게임에 인공지능을 붙여보자”는 막연한 욕심만 있었습니다. 다행히도 LLM에게 “이럴 땐 어떻게 하지?”라고 끊임없이 물어볼 수 있었고, 대답을 따라가다 보니 어느새 RL 환경과 브리지 서버까지 만들고 있더군요. 마치 든든한 페어 프로그래머를 곁에 둔 느낌이었고, 그 덕분에 겁먹지 않고 새로운 영역에 뛰어들 수 있었습니다.
 
@@ -179,6 +115,7 @@ model.learn(total_timesteps=200_000)
 `OneCardEnv`가 게임 상태를 Box 벡터로 바꿔 주고, `PPO`는 이 벡터를 받아 어떤 행동을 할지 결정합니다. 학습이 끝나면 `.zip` 파일로 정책이 저장되고, 추론 시 다시 불러 사용합니다.
 
 ### 3.1 engine-bridge
+
 - Node.js Express 서버(`engine-bridge/src/engine-server.js`)를 만들고, `onecard-client/dist/engine/gameEngine.js`를 require하여 REST API(`/reset`, `/state`, `/step`)를 제공합니다.
 - 이렇게 하면 Python이나 다른 서비스가 HTTP로 게임 엔진을 호출할 수 있습니다.
 
@@ -187,33 +124,25 @@ model.learn(total_timesteps=200_000)
 - `tsup`으로 번들한 CommonJS 엔진을 로드하고, 요청마다 `GameEngine` 인스턴스를 생성해 순수 상태를 관리합니다.
 - `/reset`은 전달받은 설정을 `createInitialState`에 넘겨 새 상태를 만든 뒤 메모리 캐시에 저장하고 JSON으로 반환합니다.
 - `/step`은 payload를 바로 `engine.step`에 연결하고, 에러가 나면 HTTP 400으로 메시지를 내려 Python 쪽에서 학습을 중단하도록 했습니다.
-- 과정 중 생기는 `@/lib` 경로 문제는 `module-alias` 대신 `tsconfig.paths.json`을 그대로 사용하도록 `NODE_PATH`를 설정해 해결했습니다.
+- `@/lib` 같은 tsconfig paths 별칭은 Node가 NODE_PATH만으로 자동 해석하지 않습니다. 번들에 해석된 경로가 포함되는지, 별도 런타임 resolver를 사용했는지 실제 빌드·실행 설정을 확인해야 합니다.
 
 ### 3.2 Gym 환경(`python-rl/gym_env.py`)
+
 - Gymnasium 인터페이스를 따르는 `OneCardEnv`를 작성했습니다.
 - 관측 벡터 구조(`ObservationSpec`, `ObservationEncoder`)와 행동 디코딩 로직을 정리하고, 현재 플레이어 시점만 노출되도록 `_resolve_to_agent_turn`에서 AI 턴을 자동으로 소모합니다.
-- 보상 함수(`default_reward`)를 분리해 추후 커스터마이즈 가능하게 했습니다.
+- 보상 함수(`default_reward`)를 분리했습니다. 승률이나 수렴 개선을 주장하려면 baseline과 평가 로그가 추가로 필요합니다.
 
 #### 구현 상세
 
 - `ObservationSpec` dataclass가 벡터 길이를 계산하고, `ObservationEncoder`는 손패/버린 카드/대미지를 원-핫과 정규화 값으로 변환합니다.
 - `_decode_action`은 Gym의 정수 액션을 실제 게임 액션(카드 인덱스, 드로우 여부)로 바꾸며, numpy dtype 문제를 막기 위해 모든 값을 `int()`로 캐스팅합니다.
 - `_resolve_to_agent_turn`은 서버가 돌려준 상태에서 `currentPlayer`가 에이전트가 될 때까지 자동으로 `NEXT_TURN`을 호출해, AI가 연속으로 여러 장을 내려도 한 번의 관측만 전달됩니다.
-- `default_reward`는 승리(+1), 패배(-1), 손패 변화량/대미지 해소 같은 shaping 항목을 조합해 PPO 학습이 안정적으로 수렴하도록 돕습니다.
+- `default_reward`는 승리(+1), 패배(-1), 손패 변화량/대미지 해소 같은 shaping 항목을 조합해 보상을 계산합니다. 이 선택의 학습 효과는 실험으로 확인해야 합니다.
 
-핵심 메서드의 흐름은 다음 코드처럼 단순한 while 루프로 표현됩니다.
-
-```python
-def _resolve_to_agent_turn(self, state):
-    buffer = state
-    while buffer["currentPlayer"] != self.agent_index:
-        buffer = self._post_json("/step", {"action": {"type": "NEXT_TURN"}})["state"]
-    return buffer
-```
-
-이렇게 해서 환경이 “플레이어 차례만” 관찰하게 만들고, 초보자도 턴 동기화 문제에 신경 쓰지 않고 학습 코드를 작성할 수 있습니다.
+초기 초안에는 currentPlayer를 비교하며 NEXT_TURN만 반복하는 루프를 적었지만, 현재 코드의 상태 필드·호출 계약과 다릅니다. 실제 종료 조건과 AI 실행은 마지막의 재확인 절에 발췌했습니다.
 
 ### 3.3 학습/추론 스크립트
+
 - `train.py`: Stable-Baselines3 PPO로 학습. `DummyVecEnv`, 체크포인트 콜백 등을 사용해 CLI 인자 기반으로 동작합니다.
 - `inference.py`: 학습된 모델을 불러와 엔진 브리지와 상호작용하며 플레이를 시뮬레이션합니다.
 - 학습 중 발생한 JSON 직렬화 오류(numpy.int64)는 `_decode_action`에서 `int()` 캐스팅으로 해결했습니다.
@@ -251,10 +180,11 @@ python inference.py --endpoint http://localhost:4000 --model checkpoints/best_mo
 
 - **엔진 재사용성**: 규칙을 순수 함수로 모듈화하니 클라이언트/서버/Python에서 모두 같은 로직을 재사용할 수 있었습니다.
 - **브리지 설계**: 간단한 Express 서버만 있어도 다른 언어(예: Python)에서 쉽게 연결할 수 있습니다.
-- **Gym 환경 설계 중요성**: 관측/보상/행동 공간을 명확히 정의하고, AI 턴을 자동으로 처리하니 RL 학습이 훨씬 안정적입니다.
+- **Gym 환경 설계 중요성**: 관측/보상/행동 공간을 명확히 정의하고, AI 턴을 처리하는 구조까지 정리했습니다. 안정성·승률 개선은 별도 평가가 필요합니다.
 - **Docstring & 타입**: Google 스타일 Docstring을 적용하면서 타입 구조와 의도를 명확히 할 수 있었고, Pylance 경고도 줄였습니다.
 
 ### 다음 단계
+
 1. **서버 권위 구조 도입**: 실제 서비스에서도 엔진을 서버로 이전해 멀티플레이/로그 수집을 준비.
 2. **AI 전략 확장**: 강화학습 모델을 서버 측 추론으로 연결하거나, 난이도별 전략을 다양화.
 3. **시드/재현성**: 엔진 브리지에 시드를 전달해 완전한 재현성을 확보.
@@ -263,10 +193,36 @@ python inference.py --endpoint http://localhost:4000 --model checkpoints/best_mo
    - 동일한 REST/gRPC API를 학습·추론 양쪽에서 그대로 쓰므로, 브리지나 의존성 문제로 실험이 중단되지 않습니다.
    - 멀티플레이/로그/치트 방지 등 실 서비스 요구사항과 RL 실험 환경을 동시에 만족할 수 있습니다.
    - 서버에서 상태 전이를 일관되게 기록할 수 있어 데이터 세트 구축과 리플레이 기반 학습(offline RL)로도 확장할 수 있습니다.
-   결국 “먼저 백엔드 구축 → 권위 상태 확보 → 그 위에서 RL 파이프라인 재구성” 순서를 따르면, 현재의 임시 브리지보다 훨씬 안정적으로 학습을 반복할 수 있을 것입니다.
+     결국 “먼저 백엔드 구축 → 권위 상태 확보 → 그 위에서 RL 파이프라인 재구성” 순서를 따르면, 현재의 임시 브리지보다 훨씬 안정적으로 학습을 반복할 수 있을 것입니다.
 
 ---
 
 이 과정에서 비록 엔진이 아직 클라이언트에 남아 있긴 하지만, `engine-bridge`와 `python-rl`을 통해 이미 “외부 서비스에서 같은 규칙을 사용한다”는 흐름을 마련했습니다. 다음 단계로 서버 권위 구조와 멀티플레이 지원을 붙이면, ONE CARD 프로젝트가 하나의 게임 AI 플랫폼으로 확장되는 기반이 마련될 것입니다.
 
 마지막으로, 이번 여정에서 얻은 가장 큰 교훈은 **“한 번 만든 규칙을 어디서든 재사용할 수 있도록 만드는 것”**이 장기적으로 가장 큰 생산성을 준다는 점입니다. 엔진 → 브리지 → Gym 환경 → 학습/추론 파이프라인이 유기적으로 연결되면서, 이제는 어떤 프로토타입을 만들더라도 동일한 규칙과 데이터를 공유할 수 있게 되었습니다. 이 일관성이 앞으로의 기능 추가와 연구 실험 속도를 더욱 끌어올릴 것입니다.
+
+## 2026년 11월 2일 코드 재확인
+
+로컬 저장소의 `python-rl/README.md`, `train.py`, `gym_env.py`를 다시 읽었습니다. `gym_env.py`는 커밋 `3c470662d390b8da2e1db6c4ba0b0b7f61c6d21b`의 내용과 같지만 저장소의 다른 파일에는 미커밋 변경이 있어, 프로젝트 전체가 그 커밋 그대로라고 주장하지는 않습니다.
+
+현재 환경은 초기 Express 브리지 대신 onecard-server의 `/games`, `/games/{id}`, `/games/{id}/ai-turns` API에 연결합니다. `train.py`는 `MaskablePPO`와 `ActionMasker`를 사용합니다. 따라서 본문의 기본 PPO·브리지 설명은 초기 단계 기록이며 현재 실행 명세와 구분해야 합니다.
+
+현재 `_resolve_to_agent_turn`의 핵심은 다음과 같습니다. 원문의 메서드에서 타입·docstring만 생략했습니다.
+
+```python
+def _resolve_to_agent_turn(self, state):
+    collapsed_state = state
+    while (
+        collapsed_state["gameStatus"] == "playing"
+        and self._is_ai_turn(collapsed_state)
+    ):
+        ai_result = self._execute_ai_turn()
+        collapsed_state = ai_result["state"]
+
+    observation = self._encode_state(collapsed_state)
+    return collapsed_state, observation
+```
+
+`_execute_ai_turn()`은 서버의 `POST /games/{id}/ai-turns`를 호출합니다. 게임이 종료되면 루프를 멈추며 상태와 관측을 함께 반환합니다. 반복 횟수 상한이나 잘림(truncated) 정책은 이 루프에 없으므로 진행 불능까지 방어했다고 볼 수는 없습니다.
+
+모델과 체크포인트 파일은 로컬에 존재하지만, 파일 존재만으로 학습 성능을 입증할 수는 없습니다. 이번 확인에서는 서버를 실행하거나 모델을 불러 평가하지 않았습니다. 플레이어 수·조커 설정·상대 정책·시드·게임 수를 고정한 승률과 무승부/불법 행동 비율이 있어야 이전 탐색 AI보다 좋아졌는지 비교할 수 있습니다.

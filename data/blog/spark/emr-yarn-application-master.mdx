@@ -1,23 +1,19 @@
 ---
 title: 'Spark on EMR의 ApplicationMaster — Driver 관계, 메모리, 대기와 재시도'
+lastmod: '2026-11-02'
 date: '2026-09-21'
 tags: ['spark', 'aws', 'emr', 'yarn', 'memory', 'performance', 'ai generated']
 draft: false
 summary: 'YARN ApplicationMaster와 Spark Driver의 관계를 cluster·client 모드별로 정리하고, EMR에서 AM 메모리·동시 실행 한도·노드 라벨·장애 재시도를 진단하는 방법을 설명한다.'
 ---
 
----
-
-이하 AI 작성 초안
+> 메모리와 동시 실행 수의 숫자는 계산 예시다. 특정 운영 클러스터의 버전·AM 한도·장애 해결 전후를 검증한 결과는 포함하지 않는다.
 
 # 들어가며
 
 Spark 애플리케이션이 `ACCEPTED` 상태에서 멈추거나 Livy 세션이 준비되지 않을 때 ApplicationMaster, 줄여서 AM이라는 용어를 만나게 된다. AM은 애플리케이션을 시작하고 YARN 자원을 확보하는 데 관여하므로, Executor 설정만 보고는 설명하기 어려운 문제와 연결되어 있다.
 
 이 글은 **EMR on EC2의 일반적인 Spark on YARN 구성**을 다룬다. Spark 설정은 Apache Spark 3.5.6 문서를 기준으로 설명하며, EMR에서 실제 사용하는 릴리스의 기본값과 지원 설정은 별도로 확인한다. EMR Serverless나 Kubernetes의 실행 구조에 YARN AM 개념을 그대로 적용하지 않는다.
-
-> [!NOTE]
-> (사용 중인 EMR·Spark 버전, cluster/client 배포 모드, AM 관련 대기 또는 종료 문제를 처음 발견한 상황을 추가해 주세요.)
 
 ---
 
@@ -197,9 +193,6 @@ Queue별 AM 비율을 지정하는 EMR 구성 예시는 다음과 같다. `0.2`�
 
 파일 기반 Capacity Scheduler 설정을 수정한 경우에는 `yarn rmadmin -refreshQueues`로 Queue 설정을 갱신할 수 있다. EMR configuration API를 통한 재구성은 적용·서비스 재시작 절차를 별도로 확인한다. [Hadoop Queue 설정 갱신](https://hadoop.apache.org/docs/r3.3.6/hadoop-yarn/hadoop-yarn-site/CapacityScheduler.html#Changing_Queue_Configuration)
 
-> [!NOTE]
-> (Scheduler UI의 AM 사용량·한도, Queue와 Node Label 파티션, 변경 전후 동시 실행 수를 추가해 주세요.)
-
 ---
 
 # EMR Core·Task와 AM 배치 정책
@@ -307,9 +300,6 @@ yarn logs -applicationId application_1234567890000_0042
 
 `spark.yarn.am.waitTime`은 cluster 모드에서 AM이 SparkContext 초기화를 기다리는 설정이다. Queue에서 AM 컨테이너가 할당되기를 기다리는 시간과는 대상이 다르다. `ACCEPTED` 대기 원인을 확인하지 않고 이 값부터 늘리지 않는다. [Spark AM 초기화 설정](https://github.com/apache/spark/blob/v3.5.6/resource-managers/yarn/src/main/scala/org/apache/spark/deploy/yarn/config.scala)
 
-> [!NOTE]
-> (application ID와 attempt별 AM 노드, 최초 실패 로그, 조정한 메모리·Queue·라벨 설정과 결과를 추가해 주세요.)
-
 ---
 
 # 결론
@@ -325,4 +315,3 @@ AM 문제를 볼 때 첫 확인 항목은 배포 모드다. Cluster 모드에서
 - [EMR Livy 세션 이해하기 — 생성부터 리소스 관리와 타임아웃까지](/blog/spark/emr-livy-session)
 - [EMR YARN Node Label Expression — CORE·TASK와 관리 모드](/blog/spark/emr-yarn-node-label-expression)
 - [YARN Capacity Scheduler 실전 가이드](/blog/spark/yarn-fair-vs-capacity-scheduler)
-- [스파크 아키텍쳐](/blog/spark/spark-architecture)

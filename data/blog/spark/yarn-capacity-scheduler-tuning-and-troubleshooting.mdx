@@ -1,5 +1,6 @@
 ---
 title: 'YARN Capacity Scheduler 설정과 Spark 리소스 대기 진단'
+lastmod: '2026-11-02'
 date: '2026-11-02'
 tags:
   - spark
@@ -14,22 +15,17 @@ summary: >-
   Spark 애플리케이션의 리소스 대기와 종료 문제를 진단하는 방법을 정리한다.
 ---
 
----
-
-이하 AI 작성 초안
+> 이 글은 Hadoop·Spark 공식 문서를 바탕으로 한 설정·진단 가이드다. 실제 클러스터의 변경값과 성능 전후 결과를 제시하는 사례 보고는 아니다.
 
 # 들어가며
 
 [이전 글](/blog/spark/yarn-fair-vs-capacity-scheduler)에서는 Capacity Scheduler와 Fair Scheduler의 차이와 큐 상세 화면을 읽는 방법을 살펴봤다. 이 글에서는 Capacity Scheduler를 사용하는 EMR 환경에서 설정을 조정하고 Spark 애플리케이션의 리소스 대기와 실행 중 종료 문제를 진단하는 내용을 이어서 다룬다.
 
-이 글은 AI가 작성한 후속 초안이다. 설정 설명은 Hadoop 3.3.5와 Spark 3.5.6 공식 문서를 기준으로 하며 실제 적용값과 변경 절차는 사용하는 EMR 릴리스에 맞춰 확인한다.
+이 글은 후속 설정 가이드다. 설정 설명은 Hadoop 3.3.5와 Spark 3.5.6 공식 문서를 기준으로 하며 실제 적용값과 변경 절차는 사용하는 EMR 릴리스에 맞춰 확인한다.
 
 ---
 
 # EMR에서의 실제 적용
-
-> [!NOTE]
-> (실제 겪었던 문제와 해결법을 여기에 추가해 주세요.)
 
 ## Capacity Scheduler 설정 예시 (EMR)
 
@@ -126,9 +122,6 @@ AM 힙을 4GiB로 설정하면 오버헤드까지 더한 컨테이너 요청량�
 **패턴 3: 큐별 설정이 없을 때**
 큐별 설정이 없으면 전역 `yarn.scheduler.capacity.maximum-am-resource-percent` 값이 적용된다. 여러 팀이 같은 큐를 공유하면 서로의 잡이 AM 한도를 잡아먹는다.
 
-> [!NOTE]
-> (실제로 어떤 패턴에서 문제가 발생했는지 여기에 추가해 주세요.)
-
 ## 해결 방법
 
 **방법 1: maximum-am-resource-percent 값 올리기**
@@ -141,7 +134,7 @@ AM 힙을 4GiB로 설정하면 오버헤드까지 더한 컨테이너 요청량�
 ```
 
 > [!WARNING]
-> 이 값을 1.0으로 설정하면 모든 리소스가 AM에 사용될 수 있어 Executor가 뜰 자리가 없어지는 역설적 상황이 생긴다. 예시값을 그대로 권장값으로 사용하지 말고 AM 크기와 목표 동시 실행 수 및 Executor에 필요한 자원을 기준으로 조정한다.
+> AM과 Executor가 같은 자원을 경쟁하는 환경에서는 1.0이 Executor 여유를 줄일 수 있다. 반면 AWS는 Managed Scaling과 Node Label을 함께 사용하며 여러 앱을 병렬 실행하는 구성에서 1을 안내한다. 파티션·릴리스 조건 없이 일괄 금지하거나 권장하지 않는다. [AWS Managed Scaling](https://docs.aws.amazon.com/emr/latest/ManagementGuide/emr-managed-scaling.html) 예시값을 그대로 권장값으로 사용하지 말고 AM 크기와 목표 동시 실행 수 및 Executor에 필요한 자원을 기준으로 조정한다.
 
 **방법 2: 큐별로 개별 설정**
 
@@ -190,9 +183,6 @@ YARN 설정 변경 없이 파이프라인 레벨에서 동시 실행 Spark 잡 �
   href="https://docs.aws.amazon.com/emr/latest/ReleaseGuide/emr-configure-apps-running-cluster.html"
 />
 
-> [!NOTE]
-> (EMR에서 실제로 이 설정을 변경한 방법과 적용 전후 차이 등을 여기에 추가해 주세요.)
-
 # Capacity Scheduler 실전 — user-limit-factor / minimum-user-limit-percent
 
 `maximum-am-resource-percent`가 "AM 컨테이너의 총량"을 제한한다면
@@ -235,9 +225,6 @@ YARN 설정 변경 없이 파이프라인 레벨에서 동시 실행 Spark 잡 �
 > [!WARNING]
 > `user-limit-factor`를 너무 높게 설정하면 한 사용자의 잡이 큐 용량을 훨씬 초과해 다른 사용자의 잡이 리소스를 받지 못하는 상황이 생긴다.
 > 적절한 값은 사용자 수와 큐의 최대 용량 및 실제 수요에 따라 결정한다.
-
-> [!NOTE]
-> (실제로 특정 사용자/팀의 잡이 리소스를 독점해 문제가 생겼던 경험이 있다면 여기에 추가해 주세요.)
 
 ---
 
@@ -301,9 +288,6 @@ Preemption(선점)은 YARN이 **리소스 부족 상태인 큐를 위해 다른 
   href="https://hadoop.apache.org/docs/r3.3.5/hadoop-yarn/hadoop-yarn-site/CapacityScheduler.html"
 />
 
-> [!NOTE]
-> (Preemption으로 인해 잡이 예고 없이 실패했던 경험이나 이를 감지한 방법을 여기에 추가해 주세요.)
-
 ---
 
 # YARN UI로 스케줄러 문제 진단하기
@@ -351,9 +335,6 @@ ResourceManager의 Application 상세 화면에서는 Diagnostics와 실행 시�
 - **Diagnostics**: 잡이 pending인 이유와 Preemption 발생 여부 메시지 확인 가능
 - **Containers**: 각 컨테이너의 상태와 노드 위치 확인
 
-> [!NOTE]
-> (실제로 YARN UI에서 문제를 진단했던 경험이나 유용하게 쓴 화면이 있다면 여기에 추가해 주세요. 스크린샷도 좋습니다.)
-
 ---
 
 # 마무리
@@ -377,4 +358,3 @@ Spark 애플리케이션이 대기할 때는 YARN UI의 진단 메시지와 실�
 
 - [YARN Capacity Scheduler와 Fair Scheduler 비교](/blog/spark/yarn-fair-vs-capacity-scheduler)
 - [Spark on EMR의 ApplicationMaster 이해하기](/blog/spark/emr-yarn-application-master)
-- [스파크 아키텍쳐](/blog/spark/spark-architecture)
