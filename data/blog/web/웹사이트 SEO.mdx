@@ -116,6 +116,8 @@ https://blog.movingzero.org/blog/spark/spark-architecture?test=1
 
 이 설정은 Vercel의 도메인 설정에 저장된다. 소스 코드를 복제하는 것만으로 리디렉션까지 복제되지는 않는다. Cloudflare의 DNS를 바꾸지 않고 기존 Vercel 주소에서 들어오는 요청을 대표 주소로 보내도록 처리했다.
 
+![Vercel 도메인 설정에서 운영 도메인과 기존 주소의 308 리디렉션을 확인했다. 계정과 식별 정보는 마스킹했다.](/static/images/blog/seo-setup/vercel-domains.png)
+
 ### 3. 일반 메타 설명 누락 보완하기
 
 공통 메타데이터 함수는 전달받은 `description`을 Open Graph에만 넣고 있었다. 일반 `<meta name="description">`에도 페이지별 설명이 반영되도록 수정했다. Twitter 카드에도 같은 설명을 넣었다.
@@ -150,6 +152,10 @@ Sitemap: https://blog.movingzero.org/sitemap.xml
 
 여기서 `Host` 줄이 Google의 대표 URL을 정해주는 것은 아니다. 대표 URL은 canonical, 사이트맵, 리디렉션 등으로 일관되게 전달해야 한다. 또한 `robots.txt`의 크롤링 허용과 검색 결과의 색인 여부는 서로 다른 문제다.
 
+![운영 사이트의 robots.txt가 blog.movingzero.org의 사이트맵을 안내한다.](/static/images/blog/seo-setup/robots-txt.png)
+
+![배포된 sitemap.xml의 일부. 기본 페이지와 공개 글의 URL이 대표 도메인으로 생성된다.](/static/images/blog/seo-setup/sitemap-xml.png)
+
 ### 5. 빌드 결과와 운영 응답 검증하기
 
 로컬에서는 전체 빌드와 ESLint를 실행하고, 생성된 HTML의 canonical과 메타 설명을 확인했다. Vercel 운영 배포 후에는 사이트맵에 포함된 29개 페이지를 다시 요청했다. 이 숫자는 당시 공개 글과 기본 페이지를 합친 값이다.
@@ -162,6 +168,8 @@ Sitemap: https://blog.movingzero.org/sitemap.xml
 
 JSON-LD가 있다는 확인은 Google의 구조화 데이터 적격성 검사와 다르다. 이번 검증만으로 리치 결과 표시나 검색 노출 순위까지 확인한 것은 아니다.
 
+![GitHub main에 반영한 변경이 Vercel 운영 환경에 배포됐고 Ready 상태로 표시된다. 계정과 배포 식별 정보는 마스킹했다.](/static/images/blog/seo-setup/vercel-deployment.png)
+
 작업 중 로컬 Node.js도 보안 릴리스인 `22.23.4`로 업데이트했다. `.nvmrc`와 nvm 기본 버전은 `22.23.4`로 맞추고, Vercel에는 `package.json`의 `engines.node`로 `22.x`를 지정했다. Vercel의 세부 패치 버전은 플랫폼이 관리하므로 로컬 버전을 올렸다는 사실만으로 운영 런타임의 정확한 패치 버전을 단정하지 않는다.
 
 ### 6. Google Search Console 등록하기
@@ -171,6 +179,8 @@ JSON-LD가 있다는 확인은 Google의 구조화 데이터 적격성 검사와
 URL 접두어 속성은 지정한 프로토콜과 주소를 기준으로 관리한다. 모든 하위 도메인과 프로토콜을 묶어 관리하는 도메인 속성과는 범위가 다르다. 이번에는 블로그 주소를 대상으로 하고, Vercel에서 인증 파일을 직접 제공할 수 있어 이 방식을 선택했다.
 
 Google이 제공한 인증 HTML 파일을 `public/`에 추가하고 GitHub에 반영했다. Vercel 자동 배포가 끝난 뒤 운영 도메인에서 파일을 정상적으로 가져올 수 있는지 확인하고, Search Console의 확인 버튼을 눌렀다. 결과 화면에서 확인 방법이 `HTML 파일`이고 소유권이 확인됐다는 메시지를 확인했다.
+
+![Search Console에서 인증된 소유자와 HTML 파일 확인 완료 상태를 확인했다. 계정 정보가 있는 상단 영역은 마스킹했다.](/static/images/blog/seo-setup/search-console-ownership.png)
 
 이어서 Sitemaps 메뉴에서 `sitemap.xml`을 제출했다. 2026년 11월 2일 기준 Search Console에 표시된 결과는 다음과 같다.
 
@@ -183,6 +193,8 @@ Google이 제공한 인증 HTML 파일을 `public/`에 추가하고 GitHub에 �
 | 발견된 페이지    | 29개                           |
 
 인증 파일은 확인 후에도 유지해야 한다. Google이 소유권을 다시 확인할 수 있기 때문이다. 인증 파일도 저장소에 포함해 이후 배포에서 빠지지 않도록 했다.
+
+![Search Console의 사이트맵 처리 상태가 성공이고 발견된 페이지가 29개로 표시된다. 계정 정보가 있는 상단 영역은 마스킹했다.](/static/images/blog/seo-setup/search-console-sitemap.png)
 
 사이트맵 처리 성공과 29개 페이지 발견은 29개 페이지의 색인이 생성됐다는 뜻은 아니다. 사이트맵 제출은 URL 발견을 돕는 절차이며 색인 생성이나 상위 노출을 보장하지 않는다. 등록 직후 실적과 페이지 보고서는 데이터 처리 중으로 표시됐다. 이후에는 페이지 색인 보고서를 확인하고, 실제 검색어별 노출과 클릭이 쌓이면 글의 제목과 내용을 개선할 계획이다.
 
