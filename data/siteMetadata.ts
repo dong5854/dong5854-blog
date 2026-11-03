@@ -9,7 +9,7 @@ const siteMetadata: SiteMetadata = {
   theme: 'system',
   siteUrl: 'https://blog.movingzero.org',
   siteRepo: 'https://github.com/dong5854/tech-blog',
-  socialBanner: '/static/images/twitter-card.png',
+  socialBanner: '/static/images/avatar.png',
   email: 'dong5854@gmail.com',
   github: 'https://github.com/dong5854',
   linkedin: 'https://www.linkedin.com/in/%EB%8F%99%EC%98%81-%EC%9D%B4-a88b7b244/',
