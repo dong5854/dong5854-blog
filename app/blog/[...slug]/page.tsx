@@ -8,6 +8,7 @@ import PostLayout from '@/layouts/PostLayout'
 import { Metadata } from 'next'
 import siteMetadata from '@/data/siteMetadata'
 import { notFound } from 'next/navigation'
+import { getRelatedPosts } from '@/lib/relatedPosts'
 
 const isProduction = process.env.NODE_ENV === 'production'
 const defaultLayout = 'PostLayout'
@@ -102,6 +103,7 @@ export default async function Page({ params }: { params: Promise<{ slug: string[
     })
     .filter((a): a is NonNullable<typeof a> => a !== null)
   const mainContent = coreContent(post)
+  const relatedPosts = getRelatedPosts(post, sortedCoreContents)
   const jsonLd: Record<string, unknown> = { ...post.structuredData }
   jsonLd['author'] = authorDetails.map((author) => {
     return {
@@ -119,7 +121,13 @@ export default async function Page({ params }: { params: Promise<{ slug: string[
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
-      <Layout content={mainContent} authorDetails={authorDetails} next={next} prev={prev}>
+      <Layout
+        content={mainContent}
+        authorDetails={authorDetails}
+        next={next}
+        prev={prev}
+        relatedPosts={relatedPosts}
+      >
         <MDXLayoutRenderer code={post.body} toc={post.toc} />
       </Layout>
     </>

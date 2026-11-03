@@ -21,10 +21,18 @@ interface LayoutProps {
   authorDetails: CoreContent<Authors>[]
   next?: { path: string; title: string }
   prev?: { path: string; title: string }
+  relatedPosts?: { path: string; title: string }[]
   children: ReactNode
 }
 
-export default function PostLayout({ content, authorDetails, next, prev, children }: LayoutProps) {
+export default function PostLayout({
+  content,
+  authorDetails,
+  next,
+  prev,
+  relatedPosts = [],
+  children,
+}: LayoutProps) {
   const { path, date, title, tags } = content
   const basePath = path.split('/')[0]
 
@@ -88,6 +96,25 @@ export default function PostLayout({ content, authorDetails, next, prev, childre
             </dl>
             <div className="divide-y divide-gray-200 dark:divide-gray-700 xl:col-span-3 xl:row-span-2 xl:pb-0">
               <div className="prose max-w-none pb-8 pt-10 dark:prose-invert">{children}</div>
+              {relatedPosts.length > 0 && (
+                <nav aria-labelledby="related-posts-heading" className="py-8">
+                  <h2 id="related-posts-heading" className="text-xl font-bold leading-8">
+                    함께 읽을 글
+                  </h2>
+                  <ul className="mt-4 space-y-3">
+                    {relatedPosts.map((post) => (
+                      <li key={post.path}>
+                        <Link
+                          href={`/${post.path}`}
+                          className="text-primary-500 hover:text-primary-600 dark:hover:text-primary-400"
+                        >
+                          {post.title}
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </nav>
+              )}
             </div>
             <footer>
               <div className="divide-gray-200 text-sm font-medium leading-5 dark:divide-gray-700 xl:col-start-1 xl:row-start-2 xl:divide-y">
