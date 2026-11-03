@@ -1,6 +1,6 @@
 ---
 title: 'YARN Capacity Scheduler와 Fair Scheduler 비교'
-lastmod: '2026-11-02'
+lastmod: '2026-11-03'
 date: '2026-09-08'
 tags:
   - spark
@@ -10,11 +10,19 @@ tags:
   - performance
 draft: false
 summary: >-
-  YARN Capacity Scheduler와 Fair Scheduler의 자원 배분 방식과 주요 특징을 비교하고
-  큐 상세 화면의 용량과 사용량 및 Fair Share를 읽는 방법을 설명한다.
+  YARN 스케줄러인 FIFO·Capacity·Fair의 차이를 살펴보고, Capacity Scheduler와 Fair Scheduler의
+  큐 자원 배분 방식과 Used Capacity·Fair Share를 운영 화면에서 읽는 방법을 비교한다.
 ---
 
 # YARN 스케줄러
+
+YARN 스케줄러의 차이는 **자원 할당 순서와 배분 기준**에 있다. FIFO는 제출 순서, Capacity Scheduler는 큐별 보장 용량, Fair Scheduler는 실행 중인 작업과 큐의 공정한 몫을 기준으로 자원을 배분한다. Capacity Scheduler도 유휴 자원을 빌려 쓸 수 있고 Fair Scheduler도 최소 보장량을 설정할 수 있으므로, 고정 분배와 동적 분배만으로 나누면 실제 동작을 오해하기 쉽다.
+
+| 스케줄러 | 우선 보는 배분 기준        | 이 글에서 확인할 내용                             |
+| -------- | -------------------------- | ------------------------------------------------- |
+| FIFO     | 먼저 제출된 애플리케이션   | 공유 클러스터에서 긴 작업이 자원을 점유하는 문제  |
+| Capacity | 큐별 보장 용량과 최대 용량 | 보장량을 넘겨 빌려 쓰는 경우와 Used Capacity 해석 |
+| Fair     | 큐·작업의 수요와 공정한 몫 | Fair Share와 실제 할당량의 차이                   |
 
 > "Spark 세션이 생성되지 않습니다. 확인해주세요."
 
@@ -272,7 +280,7 @@ Capacity Scheduler도 다른 큐의 여유 자원을 빌려 쓸 수 있고 Fair 
 
 운영 화면에서는 **실제 사용량과 배분 기준을 구분하는 것**이 중요하다. Capacity Scheduler에서는 큐의 보장량 대비 사용률과 클러스터 전체 대비 사용률을 나눠 읽어야 한다. Fair Scheduler에서는 현재 할당량과 총수요 그리고 Fair Share를 함께 확인해야 한다. 그래야 큐가 보장량을 넘겨 자원을 빌려 쓰는지 또는 추가 할당을 기다리는지 판단할 수 있다.
 
-설정 조정과 장애 진단은 후속 글인 [YARN Capacity Scheduler 설정과 Spark 리소스 대기 진단](/blog/spark/yarn-capacity-scheduler-tuning-and-troubleshooting)에서 이어서 다룬다. AM 한도와 사용자별 자원 제한 및 선점 설정을 중심으로 살펴본다.
+설정 조정과 장애 진단은 후속 글인 [EMR YARN 큐 설정과 Spark ACCEPTED 대기 진단](/blog/spark/yarn-capacity-scheduler-tuning-and-troubleshooting)에서 이어서 다룬다. AM 한도와 사용자별 자원 제한 및 선점 설정을 중심으로 살펴본다.
 
 ---
 

@@ -1,10 +1,10 @@
 ---
-title: 'EMR Livy 세션 이해하기 — 생성부터 리소스 관리와 타임아웃까지'
-lastmod: '2026-11-02'
+title: 'EMR Livy 세션 생성과 타임아웃: starting 대기·실패 진단'
+lastmod: '2026-11-03'
 date: '2026-09-21'
 tags: ['spark', 'aws', 'emr', 'yarn', 'pyspark', 'ai generated']
 draft: false
-summary: 'Livy 세션과 SparkSession의 차이, 비동기 REST API 실행 흐름, EMR에서의 세션 재사용·리소스 관리·타임아웃과 장애 진단을 정리한다.'
+summary: 'EMR Livy 세션 생성 방법과 starting 대기·생성 실패·타임아웃을 진단한다. REST API의 세션 상태와 YARN app ID, 로그를 연결해 확인하고 세션 재사용과 리소스 정리 방법을 설명한다.'
 ---
 
 > 이 글은 명시한 공식 문서 버전을 기준으로 한 운영 가이드다. 실제 EMR의 버전·동시 세션 수·시작 시간·유휴 메모리를 측정한 결과는 포함하지 않는다.
@@ -14,6 +14,16 @@ summary: 'Livy 세션과 SparkSession의 차이, 비동기 REST API 실행 흐�
 EMR 노트북에서 첫 셀을 실행하면 준비 시간이 길고, 다음 셀부터는 비교적 빠르게 실행되는 경험을 하게 된다. Livy를 사용하는 환경에서는 첫 실행 시 원격 Spark 실행 환경을 준비하고 이후 코드를 같은 환경에서 처리하기 때문이다.
 
 Apache Livy는 HTTP로 Spark 코드와 애플리케이션을 제출하고 결과를 조회하는 서버다. 이 글은 **EMR on EC2에서 Spark를 YARN으로 실행하는 대화형 Livy 세션**을 기준으로 설명한다. EMR Serverless의 Livy 엔드포인트는 인증과 설정 방식이 달라 마지막에 따로 다룬다. [AWS Livy 소개](https://docs.aws.amazon.com/emr/latest/ReleaseGuide/emr-livy.html)
+
+## Livy 세션이 starting에서 멈추거나 생성에 실패할 때
+
+`POST /sessions`의 HTTP 요청 성공과 Spark 실행 환경 준비 완료는 다르다. 응답에서 받은 session ID로 상태를 조회하고 `idle`이 되었는지 확인한다. `starting`이 길어지면 같은 세션의 YARN app ID와 로그를 함께 확인해 원인을 좁힌다.
+
+1. **생성 요청 자체가 실패한다면** HTTP 응답과 Livy 서버 로그에서 요청이 서버에 도달했는지, 인증·요청 설정 오류가 있는지 확인한다.
+2. **세션은 생겼지만 `starting`이라면** YARN 애플리케이션 생성 여부와 Diagnostics를 확인한다. `ACCEPTED` 대기는 [AM 한도·큐 자원·노드 배치 조건](/blog/spark/yarn-capacity-scheduler-tuning-and-troubleshooting)과 연결해 조사한다.
+3. **세션이 `dead`이거나 조회 시 404라면** Driver 종료, 세션 타임아웃, 명시적 삭제, Livy 재시작 이력을 확인한다. 타임아웃 값을 늘리기 전에 어느 계층에서 종료됐는지 구분한다.
+
+조회에는 `GET /sessions/{sessionId}`, `GET /sessions/{sessionId}/state`, `GET /sessions/{sessionId}/log`를 사용한다. 구체적인 요청 예제와 상태별 점검표는 아래에 정리했다. [Livy REST API](https://livy.apache.org/docs/latest/rest-api.html)
 
 ---
 

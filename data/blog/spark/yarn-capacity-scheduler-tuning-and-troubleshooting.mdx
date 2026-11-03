@@ -1,6 +1,6 @@
 ---
-title: 'YARN Capacity Scheduler 설정과 Spark 리소스 대기 진단'
-lastmod: '2026-11-02'
+title: 'EMR YARN 큐 설정: Capacity Scheduler와 Spark ACCEPTED 대기 진단'
+lastmod: '2026-11-03'
 date: '2026-11-02'
 tags:
   - spark
@@ -11,8 +11,8 @@ tags:
   - ai generated
 draft: false
 summary: >-
-  EMR의 YARN Capacity Scheduler에서 AM 한도와 사용자별 자원 제한 및 선점 설정을 살펴보고
-  Spark 애플리케이션의 리소스 대기와 종료 문제를 진단하는 방법을 정리한다.
+  EMR YARN 큐 설정과 Spark ACCEPTED 대기 원인을 정리한다. 큐 용량·AM 한도·사용자 제한·노드 라벨을
+  확인하고, 자원 할당 대기와 Executor 메모리 초과 종료를 구분해 진단한다.
 ---
 
 > 이 글은 Hadoop과 Spark 공식 문서를 바탕으로 한 설정과 진단 가이드다. 실제 클러스터의 변경값과 성능 전후 결과를 제시하는 사례 보고는 아니다.
@@ -23,13 +23,32 @@ summary: >-
 
 이 글은 후속 설정 가이드다. 설정 설명은 Hadoop 3.3.5와 Spark 3.5.6 공식 문서를 기준으로 하며 실제 적용값과 변경 절차는 사용하는 EMR 릴리스에 맞춰 확인한다.
 
+## Spark가 ACCEPTED에서 멈출 때 먼저 확인할 것
+
+Spark가 YARN의 `ACCEPTED` 상태에 오래 머문다면 ResourceManager의 Application 상세에서 Diagnostics를 먼저 읽는다. 큐 전체에 메모리가 남아 있다는 사실만으로 새 AM이 실행될 수 있다고 판단하면 안 된다. AM 한도, 사용자별 한도, 컨테이너 요청 크기, 배치 가능한 노드의 자원과 라벨을 함께 확인한다.
+
+| 보이는 증상                                   | 먼저 확인할 내용                                 | 다음에 읽을 내용                                                              |
+| --------------------------------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------- |
+| 애플리케이션이 `ACCEPTED`에서 대기            | Diagnostics, AM Used와 AM Limit, 사용자별 제한   | 아래의 AM 한도와 사용자 제한 설정                                             |
+| `RUNNING`인데 Executor를 충분히 확보하지 못함 | Pending 요청, 큐 최대 용량, 노드별 가용 자원     | 아래의 YARN UI 진단 절차                                                      |
+| Task 메모리는 남는데 AM을 시작하지 못함       | AM이 배치될 수 있는 노드 라벨과 해당 노드의 여유 | [EMR Node Label과 CORE·TASK 배치](/blog/spark/emr-yarn-node-label-expression) |
+| 실행 중 컨테이너가 메모리 초과로 종료됨       | 컨테이너 종료 사유와 Driver·Executor 로그        | 아래의 메모리 부족 구분                                                       |
+
+### YARN 큐 메모리 부족과 Executor OOM은 어떻게 다른가
+
+큐의 자원 할당 대기는 **실행할 컨테이너를 아직 확보하지 못한 상태**다. 반면 `Container killed by YARN for exceeding physical memory limits`는 **실행 중인 컨테이너가 물리 메모리 한도를 넘긴 경우**다. JVM의 `OutOfMemoryError`도 로그를 따로 확인해야 한다. AM 비율을 높이는 것만으로 Executor의 메모리 초과나 JVM 힙 부족이 해결되는 것은 아니다.
+
+이 글은 큐 설정과 자원 대기를 중심으로 다룬다. 실행 중 메모리 오류는 로그에서 실패한 프로세스를 확인하고, 해당 프로세스의 메모리·오버헤드 설정과 작업의 데이터 크기를 따로 조사해야 한다. [Spark on YARN의 메모리 설정과 로그 확인](https://spark.apache.org/docs/3.5.6/running-on-yarn.html)
+
 ---
 
-# EMR에서의 실제 적용
+# EMR YARN 큐 설정은 어디에 적용하는가
 
 ## Capacity Scheduler 설정 예시 (EMR)
 
 EMR 클러스터의 `capacity-scheduler.xml`을 수정하거나 EMR 설정 파라미터로 주입할 수 있다.
+
+EMR 설정 객체를 사용한다면 `capacity-scheduler` Classification의 `Properties`에 큐 설정을 지정한다. 지원되는 Classification과 실행 중 재구성 동작은 EMR 릴리스별로 확인한다. [Amazon EMR 애플리케이션 구성](https://docs.aws.amazon.com/emr/latest/ReleaseGuide/emr-configure-apps.html)
 
 ```xml
 <property>
