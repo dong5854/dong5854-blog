@@ -40,6 +40,13 @@ assert.deepEqual(
 assert.deepEqual(posts, original, 'selection must not reorder or mutate source posts')
 assert.deepEqual(getRelatedPosts({ ...post, tags: [] }, posts), [])
 assert.deepEqual(getRelatedPosts(post, [post, posts[1], posts[2]]), [])
+const livy = candidate('blog/spark/emr-livy-session', ['emr'])
+const am = candidate('blog/spark/emr-yarn-application-master', ['spark'])
+const newer = candidate('blog/spark/newer', ['emr', 'spark'], '2026-11-02')
+assert.deepEqual(getRelatedPosts(livy, [newer, am]), [am, newer])
+assert.deepEqual(getRelatedPosts(am, [newer, livy]), [livy, newer])
+assert.deepEqual(getRelatedPosts(livy, [newer, { ...am, draft: true }]), [newer])
+assert.deepEqual(getRelatedPosts(livy, [newer]), [newer])
 console.log(
   'PASS: relevant published posts only, case-insensitive tags, no duplicate-tag bias, stable order, three links, no mutation'
 )
